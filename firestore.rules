@@ -10,27 +10,36 @@ service cloud.firestore {
     function isSignedIn() { return request.auth != null; }
 
     function isAdmin() { 
-      return isSignedIn() && request.auth.token.email_verified == true && 
-      (request.auth.token.email == 'allanjonesms@gmail.com' || exists(/databases/$(database)/documents/admins/$(request.auth.token.email)));
+      return isSignedIn() && 
+             request.auth.token.email != null && 
+             (request.auth.token.email.lower() == 'allanjonesms@gmail.com' || 
+              exists(/databases/$(database)/documents/admins/$(request.auth.token.email)));
     }
 
     function isValidId(id) { 
-        return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$'); 
+        return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_+@.-]+$'); 
     }
 
     function isValidAdmin(data) {
-        return data.keys().hasAll(['email', 'role']) 
-          && data.keys().size() == 2
+        return data.keys().hasAll(['email', 'name', 'role', 'status', 'addedBy', 'createdAt']) 
+          && data.keys().size() == 6
           && data.email is string && data.email.size() <= 128
-          && data.role is string && data.role.size() <= 64;
+          && data.name is string && data.name.size() <= 128
+          && data.role is string && data.role.size() <= 64
+          && data.status is string && data.status.size() <= 32
+          && data.addedBy is string && data.addedBy.size() <= 128
+          && data.createdAt != null;
     }
 
     match /admins/{adminId} {
-        allow get: if isSignedIn();
+        allow get: if isSignedIn() && (adminId == request.auth.token.email.lower() || isAdmin());
         allow list: if isAdmin();
-        allow create: if isAdmin() && isValidId(adminId) && isValidAdmin(incoming());
-        allow update: if false; 
-        allow delete: if isAdmin() && isValidId(adminId);
+        allow create: if (isSignedIn() && request.auth.token.email.lower() == 'allanjonesms@gmail.com' && adminId == 'allanjonesms@gmail.com' && isValidAdmin(incoming())) || (isAdmin() && isValidId(adminId) && isValidAdmin(incoming()));
+        allow update: if (isSignedIn() && request.auth.token.email.lower() == 'allanjonesms@gmail.com' && adminId == 'allanjonesms@gmail.com' && isValidAdmin(incoming())) || (isAdmin() && isValidId(adminId) && (
+          // Ação: Alternar status de ativação do administrador
+          incoming().diff(existing()).affectedKeys().hasOnly(['status']) && incoming().status in ['Ativo', 'Inativo']
+        ));
+        allow delete: if isAdmin() && isValidId(adminId) && adminId != 'allanjonesms@gmail.com';
     }
 
     match /victims/{victimId} {

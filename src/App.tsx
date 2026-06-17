@@ -314,6 +314,27 @@ function AppInner() {
         // Is it the Master Admin? (allanjonesms@gmail.com)
         if (userEmail === 'allanjonesms@gmail.com') {
           setIsAdminAuthorized(true);
+          
+          // Auto-provision Master Admin in Firestore if missing
+          try {
+            const { doc, getDoc, setDoc, Timestamp } = await import('firebase/firestore');
+            const { db: firestoreDb } = await import('./firebase');
+            const docRef = doc(firestoreDb, 'admins', 'allanjonesms@gmail.com');
+            const docSnap = await getDoc(docRef);
+            if (!docSnap.exists()) {
+              await setDoc(docRef, {
+                email: 'allanjonesms@gmail.com',
+                name: user.displayName || 'Allan Jones',
+                role: 'master',
+                status: 'Ativo',
+                addedBy: 'Instanciação Automática',
+                createdAt: Timestamp.now()
+              });
+              console.log('Master Admin auto-provisioned successfully in Firestore.');
+            }
+          } catch (error) {
+            console.error("Error auto-provisioning Master Admin:", error);
+          }
           return;
         }
 

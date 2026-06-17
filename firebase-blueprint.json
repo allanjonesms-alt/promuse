@@ -9,11 +9,27 @@
           "type": "string",
           "description": "Email of the admin"
         },
+        "name": {
+          "type": "string",
+          "description": "Name of the admin"
+        },
         "role": {
+          "type": "string",
+          "description": "Role of the admin"
+        },
+        "status": {
+          "type": "string",
+          "enum": ["Ativo", "Inativo"]
+        },
+        "addedBy": {
           "type": "string"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
         }
       },
-      "required": ["email", "role"]
+      "required": ["email", "name", "role", "status", "addedBy"]
     },
     "Victim": {
       "title": "Victim",

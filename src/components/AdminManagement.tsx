@@ -84,6 +84,27 @@ export default function AdminManagement() {
         if (userEmail === 'allanjonesms@gmail.com') {
           setIsAdminAuthorized(true);
           setUserRole('master');
+          
+          // Auto-provision Master Admin in Firestore if missing
+          try {
+            const { setDoc, Timestamp } = await import('firebase/firestore');
+            const docRef = doc(db, 'admins', 'allanjonesms@gmail.com');
+            const docSnap = await getDoc(docRef);
+            if (!docSnap.exists()) {
+              await setDoc(docRef, {
+                email: 'allanjonesms@gmail.com',
+                name: user.displayName || 'Allan Jones',
+                role: 'master',
+                status: 'Ativo',
+                addedBy: 'Instanciação Automática',
+                createdAt: Timestamp.now()
+              });
+              console.log('Master Admin auto-provisioned successfully in Firestore (Admin panel).');
+            }
+          } catch (error) {
+            console.error("Error auto-provisioning Master Admin in Admin screen:", error);
+          }
+
           setAuthLoading(false);
           return;
         }
