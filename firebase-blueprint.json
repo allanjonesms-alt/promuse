@@ -1,0 +1,124 @@
+{
+  "entities": {
+    "Admin": {
+      "title": "Admin",
+      "description": "Administrator of the PROMUSE system",
+      "type": "object",
+      "properties": {
+        "email": {
+          "type": "string",
+          "description": "Email of the admin"
+        },
+        "role": {
+          "type": "string"
+        }
+      },
+      "required": ["email", "role"]
+    },
+    "Victim": {
+      "title": "Victim",
+      "description": "A victim under monitoring",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "cpf": { "type": "string" },
+        "phone": { "type": "string" },
+        "address": { "type": "string" },
+        "riskLevel": { "type": "string", "enum": ["Baixo", "Médio", "Alto"] },
+        "policeOfficerInCharge": { "type": "string" },
+        "assignedPatrol": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "protectiveOrder": {
+          "type": "object",
+          "properties": {
+            "id": { "type": "string" },
+            "orderNumber": { "type": "string" },
+            "issueDate": { "type": "string", "format": "date" },
+            "expiryDate": { "type": "string", "format": "date" },
+            "judgeName": { "type": "string" },
+            "restrictions": { "type": "string" },
+            "status": { "type": "string", "enum": ["Ativa", "Expirada", "Revogada"] }
+          }
+        }
+      },
+      "required": ["name", "cpf", "phone", "address", "riskLevel", "createdAt"]
+    },
+    "PanicAlert": {
+      "title": "PanicAlert",
+      "description": "An active panic alert triggered by a victim",
+      "type": "object",
+      "properties": {
+        "victimId": { "type": "string" },
+        "victimName": { "type": "string" },
+        "victimPhone": { "type": "string" },
+        "requestTime": { "type": "string", "format": "date-time" },
+        "location": {
+          "type": "object",
+          "properties": {
+            "latitude": { "type": "number" },
+            "longitude": { "type": "number" },
+            "addressDescription": { "type": "string" }
+          },
+          "required": ["latitude", "longitude"]
+        },
+        "status": { "type": "string", "enum": ["Ativo", "Em Atendimento", "Resolvido"] },
+        "dispatcherComments": { "type": "string" }
+      },
+      "required": ["victimId", "victimName", "victimPhone", "requestTime", "location", "status"]
+    },
+    "Occurrence": {
+      "title": "Occurrence",
+      "description": "An event involving a victim",
+      "type": "object",
+      "properties": {
+        "victimId": { "type": "string" },
+        "victimName": { "type": "string" },
+        "date": { "type": "string", "format": "date-time" },
+        "type": { "type": "string", "enum": ["Visita Preventiva", "Ronda PROMUSE", "Descumprimento de Medida", "Ameaça/Agressão", "Outro"] },
+        "description": { "type": "string" },
+        "registeredByOfficer": { "type": "string" },
+        "actionsTaken": { "type": "string" }
+      },
+      "required": ["victimId", "victimName", "date", "type", "description", "registeredByOfficer", "actionsTaken"]
+    },
+    "Hearing": {
+      "title": "Hearing",
+      "description": "A scheduled hearing for a case",
+      "type": "object",
+      "properties": {
+        "victimId": { "type": "string" },
+        "victimName": { "type": "string" },
+        "date": { "type": "string", "format": "date" },
+        "time": { "type": "string", "format": "time" },
+        "courtroom": { "type": "string" },
+        "judge": { "type": "string" },
+        "hearingType": { "type": "string", "enum": ["Instrução e Julgamento", "Justificação", "Conciliação"] },
+        "status": { "type": "string", "enum": ["Pendente", "Realizada", "Cancelada"] },
+        "notes": { "type": "string" }
+      },
+      "required": ["victimId", "victimName", "date", "time", "courtroom", "hearingType", "status"]
+    }
+  },
+  "firestore": {
+    "/admins/{adminId}": {
+      "schema": "Admin",
+      "description": "Master list of administrators"
+    },
+    "/victims/{victimId}": {
+      "schema": "Victim",
+      "description": "Victims under protection"
+    },
+    "/panicAlerts/{alertId}": {
+      "schema": "PanicAlert",
+      "description": "Panic alerts"
+    },
+    "/occurrences/{occurrenceId}": {
+      "schema": "Occurrence",
+      "description": "Logs of officer visits and incidents"
+    },
+    "/hearings/{hearingId}": {
+      "schema": "Hearing",
+      "description": "Court hearings"
+    }
+  }
+}

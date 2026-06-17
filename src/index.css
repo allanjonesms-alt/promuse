@@ -1,0 +1,56 @@
+@import "tailwindcss";
+
+@theme {
+  /* Slate defaults updated for a pristine light theme with grape/wine tones */
+  --color-slate-50: #1C011A;  /* Pitch-dark grape grape-black text */
+  --color-slate-100: #2C0826; /* Very deep purple-wine text */
+  --color-slate-200: #420F38; /* Rich plum-wine text */
+  --color-slate-300: #5F1B52; /* Deep grape text */
+  --color-slate-400: #7C366F; /* Elegant medium purple-wine */
+  --color-slate-500: #97508A; /* Lavender orchid text icon colour */
+  --color-slate-600: #AE72A2; /* Muted lavender orchid */
+  --color-slate-700: #C291B7; /* Light lavander violet border-line */
+  --color-slate-800: #DBB8D3; /* Softest purple border */
+  --color-slate-850: #EAD0E4; /* Ultra soft pink-purple screen-line */
+  --color-slate-900: #F4EBF3; /* Slightly tinted soft light page background */
+  --color-slate-950: #FCF7FB; /* Clean crisp off-white card/container background */
+
+  /* Emerald defaults mapped to vibrant wine reds / deep berry burgundy */
+  --color-emerald-50: #350009;  /* Dark berry-black text */
+  --color-emerald-100: #560312; /* Deep burgundy text */
+  --color-emerald-200: #74061A; /* Classic deep red wine value */
+  --color-emerald-300: #93142B; /* Rich cherry red value */
+  --color-emerald-400: #B12841; /* Crimson wine red */
+  --color-emerald-500: #CC3F58; /* Medium raspberry */
+  --color-emerald-600: #E06076; /* Soft coral-rose wine button */
+  --color-emerald-700: #EE8A9C; /* Pastel rose */
+  --color-emerald-800: #FAB7C4; /* Soft pink block */
+  --color-emerald-900: #FCE1E6; /* Light cotton-candy rose background */
+  --color-emerald-950: #FDF1F3; /* Softest off-white pinkish layout background */
+
+  /* Teal defaults mapped to royal purple & fuchsia accents */
+  --color-teal-50: #290035;
+  --color-teal-100: #410252;
+  --color-teal-200: #5F0B73;
+  --color-teal-300: #7F1E96;
+  --color-teal-400: #9D38B5;
+  --color-teal-500: #B858CE;
+  --color-teal-600: #CC7EE0;
+  --color-teal-700: #DCA1ED;
+  --color-teal-800: #ECBCFA;
+  --color-teal-900: #F5DCFC;
+  --color-teal-950: #FAF1FD;
+
+  /* Blue defaults mapped to elegant medium violet / indigo-purple */
+  --color-blue-50: #1E013A;
+  --color-blue-100: #34095E;
+  --color-blue-200: #4A1580;
+  --color-blue-300: #6226A1;
+  --color-blue-450: #7E40C1;
+  --color-blue-500: #9A5CDB;
+  --color-blue-600: #B47AEB;
+  --color-blue-700: #CBA0FA;
+  --color-blue-800: #E6D2FC;
+  --color-blue-900: #F2E8FC;
+  --color-blue-950: #FAF5FE;
+}

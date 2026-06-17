@@ -1,0 +1,213 @@
+{
+  "victims": [
+    {
+      "id": "vit_1",
+      "name": "Maria Eduarda Silva",
+      "cpf": "023.456.789-99",
+      "phone": "(67) 99876-5432",
+      "address": "Rua Delmira Bandeira, 1205, Bairro Senhor Divino, Coxim-MS",
+      "riskLevel": "Alto",
+      "policeOfficerInCharge": "Sgt PM Anderson",
+      "assignedPatrol": "VTR PROMUSE 5040",
+      "createdAt": "2026-01-15T10:00:00.000Z",
+      "protectiveOrder": {
+        "id": "ord_1",
+        "orderNumber": "0001423-45.2026.8.12.0011",
+        "issueDate": "2026-01-16",
+        "expiryDate": "2026-07-16",
+        "judgeName": "Dr. Cláudio Müller Pareja",
+        "restrictions": "Proibição de aproximação física (mínimo de 300 metros) e proibição de qualquer tipo de contato por telefone, redes sociais ou terceiros.",
+        "status": "Ativa"
+      }
+    },
+    {
+      "id": "vit_2",
+      "name": "Ana Júlia Santos",
+      "cpf": "124.365.129-12",
+      "phone": "(67) 99123-4567",
+      "address": "Avenida Virgínia Ferreira, 452, Bairro Santo André, Coxim-MS",
+      "riskLevel": "Médio",
+      "policeOfficerInCharge": "Cb PM Fernanda",
+      "assignedPatrol": "VTR PROMUSE 5040",
+      "createdAt": "2026-02-10T14:30:00.000Z",
+      "protectiveOrder": {
+        "id": "ord_2",
+        "orderNumber": "0002891-12.2026.8.12.0011",
+        "issueDate": "2026-02-12",
+        "expiryDate": "2026-08-12",
+        "judgeName": "Dra. Tatiana Dias de Oliveira",
+        "restrictions": "Proibição de aproximação física (mínimo de 200 metros) do local de residência e do local de trabalho da vítima.",
+        "status": "Ativa"
+      }
+    },
+    {
+      "id": "vit_3",
+      "name": "Sandra Regina Medeiros",
+      "cpf": "345.987.654-88",
+      "phone": "(67) 99234-9876",
+      "address": "Rua Márcio Lima, 88, Vila São Paulo, Coxim-MS",
+      "riskLevel": "Alto",
+      "policeOfficerInCharge": "Sgt PM Anderson",
+      "assignedPatrol": "VTR PROMUSE 5042",
+      "createdAt": "2026-03-01T09:15:00.000Z",
+      "protectiveOrder": {
+        "id": "ord_3",
+        "orderNumber": "0003112-90.2026.8.12.0011",
+        "issueDate": "2026-03-02",
+        "expiryDate": "2026-09-02",
+        "judgeName": "Dr. Cláudio Müller Pareja",
+        "restrictions": "Afastamento imediato do lar conjugal do agressor, proibição de contato por qualquer meio de comunicação e limite físico de 500 metros.",
+        "status": "Ativa"
+      }
+    },
+    {
+      "id": "vit_4",
+      "name": "Patrícia Oliveira Souza",
+      "cpf": "231.543.876-45",
+      "phone": "(67) 99654-3210",
+      "address": "Rua Filinto Müller, 230, Centro, Coxim-MS",
+      "riskLevel": "Baixo",
+      "policeOfficerInCharge": "Cb PM Fernanda",
+      "assignedPatrol": "VTR PROMUSE 5040",
+      "createdAt": "2026-04-18T16:45:00.000Z",
+      "protectiveOrder": {
+        "id": "ord_4",
+        "orderNumber": "0004561-18.2026.8.12.0011",
+        "issueDate": "2026-04-20",
+        "expiryDate": "2026-10-20",
+        "judgeName": "Dra. Tatiana Dias de Oliveira",
+        "restrictions": "Proibição de aproximação do local de trabalho e residência da vítima em menos de 150 metros.",
+        "status": "Ativa"
+      }
+    }
+  ],
+  "panicAlerts": [
+    {
+      "id": "alt_1779309056894",
+      "victimId": "vit_2",
+      "victimName": "Ana Júlia Santos",
+      "victimPhone": "(67) 99123-4567",
+      "requestTime": "2026-05-20T20:30:56.894Z",
+      "location": {
+        "latitude": -18.5049,
+        "longitude": -54.745,
+        "addressDescription": "Coordenadas capturadas: Lat -18.5049, Lng -54.7450"
+      },
+      "status": "Ativo",
+      "dispatcherComments": ""
+    },
+    {
+      "id": "alt_1779309056892",
+      "victimId": "vit_2",
+      "victimName": "Ana Júlia Santos",
+      "victimPhone": "(67) 99123-4567",
+      "requestTime": "2026-05-20T20:30:56.892Z",
+      "location": {
+        "latitude": -18.5049,
+        "longitude": -54.745,
+        "addressDescription": "Coordenadas capturadas: Lat -18.5049, Lng -54.7450"
+      },
+      "status": "Ativo",
+      "dispatcherComments": ""
+    },
+    {
+      "id": "alt_1779308565874",
+      "victimId": "vit_1",
+      "victimName": "Maria Eduarda Silva",
+      "victimPhone": "(67) 99876-5432",
+      "requestTime": "2026-05-20T20:22:45.874Z",
+      "location": {
+        "latitude": -18.5049,
+        "longitude": -54.745,
+        "addressDescription": "Coordenadas capturadas: Lat -18.5049, Lng -54.7450"
+      },
+      "status": "Resolvido",
+      "dispatcherComments": "atendida"
+    },
+    {
+      "id": "alt_1779308565770",
+      "victimId": "vit_1",
+      "victimName": "Maria Eduarda Silva",
+      "victimPhone": "(67) 99876-5432",
+      "requestTime": "2026-05-20T20:22:45.770Z",
+      "location": {
+        "latitude": -18.5049,
+        "longitude": -54.745,
+        "addressDescription": "Coordenadas capturadas: Lat -18.5049, Lng -54.7450"
+      },
+      "status": "Ativo",
+      "dispatcherComments": ""
+    },
+    {
+      "id": "alert_pre_1",
+      "victimId": "vit_3",
+      "victimName": "Sandra Regina Medeiros",
+      "victimPhone": "(67) 99234-9876",
+      "requestTime": "2026-05-19T21:10:00.000Z",
+      "location": {
+        "latitude": -18.5085,
+        "longitude": -54.7582,
+        "addressDescription": "Perto da Vila São Paulo, Coxim-MS (Próximo à quadra de esportes)"
+      },
+      "status": "Resolvido",
+      "dispatcherComments": "Agressor avistado rondando a casa. Guarnição da VTR PROMUSE 5042 deslocou rapidamente, abordou o cidadão e efetuou a prisão por descumprimento de medida protetiva."
+    },
+    {
+      "id": "alert_pre_2",
+      "victimId": "vit_1",
+      "victimName": "Maria Eduarda Silva",
+      "victimPhone": "(67) 99876-5432",
+      "requestTime": "2026-05-20T10:30:00.000Z",
+      "location": {
+        "latitude": -18.5042,
+        "longitude": -54.7615,
+        "addressDescription": "Bairro Senhor Divino, próximo ao Posto de Saúde"
+      },
+      "status": "Resolvido",
+      "dispatcherComments": "Vítima acionou o botão por engano enquanto limpava a tela do celular. Guarnição fez contato telefônico e visita presencial preventiva para confirmação. Tudo sob controle."
+    }
+  ],
+  "occurrences": [
+    {
+      "id": "occ_1779309016695",
+      "victimId": "vit_1",
+      "victimName": "Maria Eduarda Silva",
+      "date": "2026-05-20T20:30:16.695Z",
+      "type": "Descumprimento de Medida",
+      "description": "Acionamento de botão de Pânico resolvido pelo despachante. Descrição do atendimento: atendida",
+      "registeredByOfficer": "Coordenação 5ºBPM",
+      "actionsTaken": "Acionamento emergencial respondido via deslocamento policial e encerrado."
+    },
+    {
+      "id": "occ_1",
+      "victimId": "vit_1",
+      "victimName": "Maria Eduarda Silva",
+      "date": "2026-05-15T09:00:00.000Z",
+      "type": "Visita Preventiva",
+      "description": "Visita periódica da equipe PROMUSE de Coxim para acompanhamento. Vítima relata que o agressor não tentou contato e se sente segura com o patrulhamento frequente.",
+      "registeredByOfficer": "Sgt PM Anderson",
+      "actionsTaken": "Registrado relatório de visita positiva no sistema e reforçados os canais de contato emergencial."
+    },
+    {
+      "id": "occ_2",
+      "victimId": "vit_2",
+      "victimName": "Ana Júlia Santos",
+      "date": "2026-05-17T15:30:00.000Z",
+      "type": "Ronda PROMUSE",
+      "description": "Fiscalização de rota preventiva ao redor da residência e comércio de trabalho da vítima. Nenhum suspeito avistado nas imediações.",
+      "registeredByOfficer": "Cb PM Fernanda",
+      "actionsTaken": "Envio de mensagem SMS para a vítima informando sobre a ronda preventiva."
+    },
+    {
+      "id": "occ_3",
+      "victimId": "vit_1",
+      "victimName": "Maria Eduarda Silva",
+      "date": "2026-05-18T18:40:00.000Z",
+      "type": "Descumprimento de Medida",
+      "description": "Agressor tentou enviar mensagens de ameaça usando número anônimo através do WhatsApp.",
+      "registeredByOfficer": "Sgt PM Anderson",
+      "actionsTaken": "Prints das telas anexados ao histórico. Orientada a vítima a lavrar boletim de ocorrência complementar na Delegacia da Mulher (DAM) Coxim."
+    }
+  ],
+  "hearings": []
+}

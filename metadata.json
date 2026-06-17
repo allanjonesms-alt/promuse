@@ -1,0 +1,6 @@
+{
+  "name": "PROMUSE Coxim-MS",
+  "description": "Aplicativo de gerenciamento do Programa Mulher Segura (PROMUSE) do 5°BPM de Coxim-MS, com monitoramento, registro de ocorrências, audiências e botão de pânico.",
+  "requestFramePermissions": ["geolocation"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

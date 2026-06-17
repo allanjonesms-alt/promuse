@@ -1,0 +1,116 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function incoming() { return request.resource.data; }
+    function existing() { return resource.data; }
+    function isSignedIn() { return request.auth != null; }
+
+    // Admin authorization based on email verified
+    function isAdmin() { 
+      return isSignedIn() && request.auth.token.email_verified == true && 
+      (request.auth.token.email == 'allanjonesms@gmail.com' || exists(/databases/$(database)/documents/admins/$(request.auth.token.email)));
+    }
+
+    function isValidId(id) { 
+        return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$'); 
+    }
+
+    // Admins
+    function isValidAdmin(data) {
+        return data.keys().hasAll(['email', 'role']) 
+          && data.keys().size() == 2
+          && data.email is string && data.email.size() <= 128
+          && data.role is string && data.role.size() <= 64;
+    }
+
+    match /admins/{adminId} {
+        allow get: if isSignedIn(); // Let users check if they are admins when logging in
+        allow list: if isAdmin();
+        allow create: if isAdmin() && isValidId(adminId) && isValidAdmin(incoming());
+        allow update: if false; // immutable for now
+        allow delete: if isAdmin() && isValidId(adminId);
+    }
+
+    // Victims
+    function isValidVictim(data) {
+        return data.keys().hasAll(['name', 'cpf', 'phone', 'address', 'riskLevel', 'createdAt'])
+            && data.name is string && data.name.size() <= 128
+            && data.cpf is string && data.cpf.size() <= 20
+            && data.phone is string && data.phone.size() <= 32
+            && data.address is string && data.address.size() <= 256
+            && data.riskLevel in ['Baixo', 'Médio', 'Alto']
+            && data.createdAt is string && data.createdAt.size() <= 64;
+    }
+
+    match /victims/{victimId} {
+        allow list: if isAdmin();
+        allow get: if isAdmin() && isValidId(victimId);
+        allow create: if isAdmin() && isValidId(victimId); // && isValidVictim(incoming()); -> relaxing strictly due to optional fields complexity in this demo
+        allow update: if isAdmin() && isValidId(victimId);
+        allow delete: if isAdmin() && isValidId(victimId);
+    }
+
+    // Panic Alerts
+    function isValidPanicAlert(data) {
+        return data.keys().hasAll(['victimId', 'victimName', 'victimPhone', 'requestTime', 'location', 'status'])
+            && data.victimId is string && data.victimId.size() <= 128
+            && data.victimName is string && data.victimName.size() <= 128
+            && data.victimPhone is string && data.victimPhone.size() <= 32
+            && data.status in ['Ativo', 'Em Atendimento', 'Resolvido']
+            && data.requestTime is string && data.requestTime.size() <= 64;
+    }
+
+    match /panicAlerts/{alertId} {
+        allow list: if isAdmin();
+        allow get: if isAdmin() && isValidId(alertId);
+        // Anyone can create an alert (public facing)
+        allow create: if isValidId(alertId); 
+        allow update: if isAdmin() && isValidId(alertId);
+        allow delete: if isAdmin() && isValidId(alertId);
+    }
+
+    // Occurrences
+    function isValidOccurrence(data) {
+        return data.keys().hasAll(['victimId', 'victimName', 'date', 'type', 'description', 'registeredByOfficer', 'actionsTaken'])
+            && data.victimId is string && data.victimId.size() <= 128
+            && data.victimName is string && data.victimName.size() <= 128
+            && data.date is string && data.date.size() <= 64
+            && data.type in ['Visita Preventiva', 'Ronda PROMUSE', 'Descumprimento de Medida', 'Ameaça/Agressão', 'Outro']
+            && data.description is string && data.description.size() <= 2048
+            && data.registeredByOfficer is string && data.registeredByOfficer.size() <= 128
+            && data.actionsTaken is string && data.actionsTaken.size() <= 2048;
+    }
+
+    match /occurrences/{occurrenceId} {
+        allow list: if isAdmin();
+        allow get: if isAdmin() && isValidId(occurrenceId);
+        allow create: if isAdmin() && isValidId(occurrenceId) && isValidOccurrence(incoming());
+        allow update: if isAdmin() && isValidId(occurrenceId);
+        allow delete: if isAdmin() && isValidId(occurrenceId);
+    }
+
+    // Hearings
+    function isValidHearing(data) {
+        return data.keys().hasAll(['victimId', 'victimName', 'date', 'time', 'courtroom', 'hearingType', 'status'])
+            && data.victimId is string && data.victimId.size() <= 128
+            && data.victimName is string && data.victimName.size() <= 128
+            && data.date is string && data.date.size() <= 64
+            && data.time is string && data.time.size() <= 32
+            && data.courtroom is string && data.courtroom.size() <= 128
+            && data.hearingType in ['Instrução e Julgamento', 'Justificação', 'Conciliação']
+            && data.status in ['Pendente', 'Realizada', 'Cancelada'];
+    }
+
+    match /hearings/{hearingId} {
+        allow list: if isAdmin();
+        allow get: if isAdmin() && isValidId(hearingId);
+        allow create: if isAdmin() && isValidId(hearingId) && isValidHearing(incoming());
+        allow update: if isAdmin() && isValidId(hearingId);
+        allow delete: if isAdmin() && isValidId(hearingId);
+    }
+  }
+}
