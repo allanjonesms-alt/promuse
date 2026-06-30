@@ -2,6 +2,7 @@ export interface ProtectiveOrder {
   id: string;
   orderNumber: string;
   defendantName?: string;
+  distanceLimit?: string;
   issueDate: string;
   expiryDate: string;
   judgeName: string;
@@ -19,6 +20,7 @@ export interface Victim {
   policeOfficerInCharge?: string;
   assignedPatrol?: string;
   createdAt: string;
+  aggressorPhotoUrl?: string;
   protectiveOrder?: ProtectiveOrder;
 }
 
@@ -42,6 +44,7 @@ export interface Occurrence {
   victimId: string;
   victimName: string;
   date: string;
+  cadgProtocol?: string;
   type: 'Visita Preventiva' | 'Ronda PROMUSE' | 'Descumprimento de Medida' | 'Ameaça/Agressão' | 'Outro';
   description: string;
   registeredByOfficer: string;

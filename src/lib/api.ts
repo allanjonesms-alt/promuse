@@ -1,11 +1,13 @@
 import { collection, doc, setDoc, getDocs, updateDoc, deleteDoc, getDoc, writeBatch } from 'firebase/firestore';
 import { db } from '../firebase';
+import { getAuth } from 'firebase/auth';
 
 const generateId = (prefix: string) => `${prefix}_${Date.now()}`;
 
 export const firebaseApiFetch = async (url: string, options?: any) => {
   const method = options?.method || 'GET';
   const body = options?.body ? JSON.parse(options.body) : null;
+  const auth = getAuth();
 
   try {
     if (url === '/api/db' && method === 'GET') {
@@ -50,6 +52,9 @@ export const firebaseApiFetch = async (url: string, options?: any) => {
         createdAt: body.createdAt || new Date().toISOString(),
         protectiveOrder: body.protectiveOrder || null
       };
+      console.log("USER:", auth.currentUser);
+      console.log("UID:", auth.currentUser?.uid);
+      console.log("EMAIL:", auth.currentUser?.email);
       await setDoc(doc(db, 'victims', id), victim);
       return { ok: true, json: async () => ({ id, ...victim }) };
     }
@@ -60,12 +65,18 @@ export const firebaseApiFetch = async (url: string, options?: any) => {
       // but updateDoc only patches provided fields.
       // We will remove id from the body
       const { id: _, ...updateData } = body;
+      console.log("USER:", auth.currentUser);
+      console.log("UID:", auth.currentUser?.uid);
+      console.log("EMAIL:", auth.currentUser?.email);
       await updateDoc(doc(db, 'victims', id), updateData);
       return { ok: true, json: async () => body }; 
     }
 
     if (url.startsWith('/api/victims/') && method === 'DELETE') {
       const id = url.split('/').pop()!;
+      console.log("USER:", auth.currentUser);
+      console.log("UID:", auth.currentUser?.uid);
+      console.log("EMAIL:", auth.currentUser?.email);
       await deleteDoc(doc(db, 'victims', id));
       return { ok: true, json: async () => ({ message: 'Deleted' }) };
     }
@@ -81,6 +92,9 @@ export const firebaseApiFetch = async (url: string, options?: any) => {
         status: body.status || 'Ativo',
         dispatcherComments: body.dispatcherComments || ''
       };
+      console.log("USER:", auth.currentUser);
+      console.log("UID:", auth.currentUser?.uid);
+      console.log("EMAIL:", auth.currentUser?.email);
       await setDoc(doc(db, 'panicAlerts', id), alert);
       return { ok: true, json: async () => ({ id, ...alert }) };
     }
@@ -91,6 +105,9 @@ export const firebaseApiFetch = async (url: string, options?: any) => {
         status: body.status || 'Resolvido',
         dispatcherComments: body.dispatcherComments || ''
       };
+      console.log("USER:", auth.currentUser);
+      console.log("UID:", auth.currentUser?.uid);
+      console.log("EMAIL:", auth.currentUser?.email);
       await updateDoc(doc(db, 'panicAlerts', id), updateData);
       
       // Auto log occurrence
@@ -109,6 +126,9 @@ export const firebaseApiFetch = async (url: string, options?: any) => {
             registeredByOfficer: body.registeredByOfficer || 'Despachante 5ºBPM',
             actionsTaken: 'Acionamento emergencial respondido via deslocamento policial e encerrado.'
           };
+          console.log("USER:", auth.currentUser);
+          console.log("UID:", auth.currentUser?.uid);
+          console.log("EMAIL:", auth.currentUser?.email);
           await setDoc(doc(db, 'occurrences', occId), occ);
         }
       }
@@ -122,10 +142,14 @@ export const firebaseApiFetch = async (url: string, options?: any) => {
         victimName: body.victimName || 'Vítima',
         date: body.date || new Date().toISOString(),
         type: body.type || 'Visita Preventiva',
+        cadgProtocol: body.cadgProtocol || '',
         description: body.description || '',
         registeredByOfficer: body.registeredByOfficer || 'Policial',
         actionsTaken: body.actionsTaken || ''
       };
+      console.log("USER:", auth.currentUser);
+      console.log("UID:", auth.currentUser?.uid);
+      console.log("EMAIL:", auth.currentUser?.email);
       await setDoc(doc(db, 'occurrences', id), occ);
       return { ok: true, json: async () => ({ id, ...occ }) };
     }

@@ -27,8 +27,11 @@ import {
   Map,
   Filter,
   UsersRound,
-  FileCheck2
+  FileCheck2,
+  Printer
 } from 'lucide-react';
+import { useReactToPrint } from 'react-to-print';
+import { PrintableFicha } from './components/PrintableFicha';
 import { AppDB, Victim, PanicAlert, Occurrence } from './types';
 import VictimPortal from './components/VictimPortal';
 import AdminManagement from './components/AdminManagement';
@@ -75,6 +78,7 @@ function AppInner() {
   const [loading, setLoading] = useState(true);
   const [apiError, setApiError] = useState<string | null>(null);
   const [activeRole, setActiveRole] = useState<'police' | 'victim' | 'admin'>('police');
+  const [policeView, setPoliceView] = useState<'dashboard' | 'victims'>('dashboard');
   const [selectedSimulatedVictimId, setSelectedSimulatedVictimId] = useState<string>('');
   
   // Notification logs simulating messages sent to coordinators & patrol officers' phones
@@ -110,6 +114,7 @@ function AppInner() {
     assignedPatrol: 'VTR PROMUSE 5040',
     orderNumber: '',
     defendantName: '',
+    aggressorPhotoUrl: '',
     judgeName: 'Dr. Cláudio Müller Pareja',
     restrictions: 'Proibição de aproximação física (mínimo de 300 metros) do local de residência da vítima.',
     issueDate: '',
@@ -119,12 +124,81 @@ function AppInner() {
 
 
   const [isOccurrenceModalOpen, setIsOccurrenceModalOpen] = useState(false);
+  const printRef = React.useRef<HTMLDivElement>(null);
+  const handlePrint = async () => {
+    if (!printRef.current) return;
+    
+    try {
+      // We dynamically import to keep initial bundle size smaller
+      const html2canvas = (await import('html2canvas')).default;
+      const { jsPDF } = await import('jspdf');
+      
+      const element = printRef.current;
+      
+      // We temporarily make it visible for html2canvas to capture it properly
+      const originalPosition = element.style.position;
+      const originalTop = element.style.top;
+      const originalLeft = element.style.left;
+      const originalDisplay = element.style.display;
+      
+      element.style.position = 'absolute';
+      element.style.top = '0';
+      element.style.left = '0';
+      element.style.display = 'block';
+      element.style.zIndex = '-1000'; // keep it behind other elements
+      
+      const pages = element.querySelectorAll('.pdf-page');
+      
+      const pdf = new jsPDF({
+        orientation: 'portrait',
+        unit: 'mm',
+        format: 'a4'
+      });
+      
+      for (let i = 0; i < pages.length; i++) {
+        const page = pages[i] as HTMLElement;
+        const canvas = await html2canvas(page, {
+          scale: 2, // better resolution
+          useCORS: true, // for images
+          logging: false
+        });
+        
+        const imgData = canvas.toDataURL('image/png');
+        const pdfWidth = pdf.internal.pageSize.getWidth();
+        const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
+        
+        if (i > 0) {
+          pdf.addPage();
+        }
+        pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight);
+      }
+      
+      // Restore styles
+      element.style.position = originalPosition;
+      element.style.top = originalTop;
+      element.style.left = originalLeft;
+      element.style.display = originalDisplay;
+      element.style.zIndex = '';
+      
+      const fileName = newOccurrenceForm.victimId 
+        ? `Ficha_Atendimento_${newOccurrenceForm.victimId}.pdf` 
+        : 'Ficha_Atendimento.pdf';
+        
+      pdf.save(fileName);
+    } catch (err) {
+      console.error("Error generating PDF:", err);
+      alert("Houve um erro ao gerar o PDF da ficha.");
+    }
+  };
+  
   const [newOccurrenceForm, setNewOccurrenceForm] = useState({
     victimId: '',
     type: 'Visita Preventiva' as 'Visita Preventiva' | 'Ronda PROMUSE' | 'Descumprimento de Medida' | 'Ameaça/Agressão' | 'Outro',
     description: '',
     registeredByOfficer: 'Sgt PM Anderson',
-    actionsTaken: ''
+    actionsTaken: '',
+    cadgProtocol: '',
+    date: new Date().toISOString().split('T')[0]
   });
 
   // Active Map Selection State
@@ -319,9 +393,14 @@ function AppInner() {
           try {
             const { doc, getDoc, setDoc, Timestamp } = await import('firebase/firestore');
             const { db: firestoreDb } = await import('./firebase');
+            const { getAuth } = await import('firebase/auth');
             const docRef = doc(firestoreDb, 'admins', 'allanjonesms@gmail.com');
             const docSnap = await getDoc(docRef);
             if (!docSnap.exists()) {
+              const authInstance = getAuth();
+              console.log("USER:", authInstance.currentUser);
+              console.log("UID:", authInstance.currentUser?.uid);
+              console.log("EMAIL:", authInstance.currentUser?.email);
               await setDoc(docRef, {
                 email: 'allanjonesms@gmail.com',
                 name: user.displayName || 'Allan Jones',
@@ -729,6 +808,7 @@ function AppInner() {
               riskLevel: newVictimForm.riskLevel,
               policeOfficerInCharge: newVictimForm.policeOfficerInCharge,
               assignedPatrol: newVictimForm.assignedPatrol,
+              aggressorPhotoUrl: newVictimForm.aggressorPhotoUrl,
               protectiveOrder: {
                 id: v.protectiveOrder?.id || 'ord_fb_' + Date.now(),
                 orderNumber: newVictimForm.orderNumber,
@@ -754,6 +834,7 @@ function AppInner() {
           riskLevel: newVictimForm.riskLevel,
           policeOfficerInCharge: newVictimForm.policeOfficerInCharge,
           assignedPatrol: newVictimForm.assignedPatrol,
+          aggressorPhotoUrl: newVictimForm.aggressorPhotoUrl,
           createdAt: new Date().toISOString(),
           protectiveOrder: {
             id: 'ord_fb_' + Date.now(),
@@ -786,6 +867,7 @@ function AppInner() {
       assignedPatrol: v.assignedPatrol || 'VTR PROMUSE 5040',
       orderNumber: v.protectiveOrder?.orderNumber || '',
       defendantName: v.protectiveOrder?.defendantName || '',
+      aggressorPhotoUrl: v.aggressorPhotoUrl || '',
       judgeName: v.protectiveOrder?.judgeName || 'Dr. Cláudio Müller Pareja',
       restrictions: v.protectiveOrder?.restrictions || '',
       issueDate: v.protectiveOrder?.issueDate || '',
@@ -821,10 +903,11 @@ function AppInner() {
       phone: '',
       address: '',
       riskLevel: 'Baixo',
-      policeOfficerInCharge: 'A definir',
+      policeOfficerInCharge: currentUser?.displayName || 'A definir',
       assignedPatrol: 'VTR PROMUSE 5040',
       orderNumber: '',
       defendantName: '',
+      aggressorPhotoUrl: '',
       judgeName: 'Dr. Cláudio Müller Pareja',
       restrictions: 'Proibição de aproximação física (mínimo de 300 metros) do local de residência da vítima.',
       issueDate: '',
@@ -859,7 +942,9 @@ function AppInner() {
           type: 'Visita Preventiva',
           description: '',
           registeredByOfficer: 'Sgt PM Anderson',
-          actionsTaken: ''
+          actionsTaken: '',
+          cadgProtocol: '',
+          date: new Date().toISOString().split('T')[0]
         });
       } else {
         throw new Error('Local');
@@ -870,7 +955,8 @@ function AppInner() {
         id: 'occ_fb_' + Date.now(),
         victimId: newOccurrenceForm.victimId,
         victimName: v ? v.name : 'Vítima',
-        date: new Date().toISOString(),
+        date: newOccurrenceForm.date ? new Date(newOccurrenceForm.date).toISOString() : new Date().toISOString(),
+        cadgProtocol: newOccurrenceForm.cadgProtocol,
         type: newOccurrenceForm.type,
         description: newOccurrenceForm.description,
         registeredByOfficer: newOccurrenceForm.registeredByOfficer,
@@ -958,6 +1044,25 @@ function AppInner() {
 
   const activePanicCount = db.panicAlerts.filter(a => a.status === 'Ativo').length;
 
+  if (checkingAuth) {
+    return (
+      <div className="min-h-screen bg-slate-900 flex items-center justify-center">
+        <div className="flex flex-col items-center gap-3 text-slate-300">
+          <div className="w-8 h-8 rounded-full border-4 border-t-emerald-500 border-emerald-900 animate-spin"></div>
+          <span className="text-xs font-mono tracking-wider uppercase opacity-80">Carregando Sistema...</span>
+        </div>
+      </div>
+    );
+  }
+
+  if (!isAdminAuthorized) {
+    return (
+      <div className="min-h-screen bg-slate-900 flex flex-col pt-12 items-center px-4">
+        <AdminManagement />
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-slate-900 text-slate-100 flex flex-col font-sans transition-all selection:bg-rose-600 selection:text-white">
       
@@ -985,11 +1090,11 @@ function AppInner() {
               className={`px-4 py-2 rounded-lg text-xs font-bold uppercase transition-all flex items-center gap-2 cursor-pointer ${
                 activeRole === 'police' 
                   ? 'bg-emerald-600/90 text-white shadow-md' 
-                  : 'text-slate-300 hover:text-slate-100 hover:bg-white/5'
+                  : 'text-slate-300 hover:text-white hover:bg-white/20'
               }`}
             >
               <Activity className="w-4 h-4" />
-              Painel PMMS Comando
+              PAINEL
             </button>
             <button
               id="switch_victim_role"
@@ -997,7 +1102,7 @@ function AppInner() {
               className={`px-4 py-2 rounded-lg text-xs font-bold uppercase transition-all flex items-center gap-2 cursor-pointer ${
                 activeRole === 'victim' 
                   ? 'bg-rose-700/90 text-white shadow-md animate-pulse' 
-                  : 'text-slate-300 hover:text-slate-100 hover:bg-white/5'
+                  : 'text-slate-300 hover:text-white hover:bg-white/20'
               }`}
             >
               <Smartphone className="w-4 h-4 animate-bounce" />
@@ -1009,7 +1114,7 @@ function AppInner() {
               className={`px-4 py-2 rounded-lg text-xs font-bold uppercase transition-all flex items-center gap-2 cursor-pointer ${
                 activeRole === 'admin' 
                   ? 'bg-blue-600/90 text-white shadow-md' 
-                  : 'text-slate-300 hover:text-slate-100 hover:bg-white/5'
+                  : 'text-slate-300 hover:text-white hover:bg-white/20'
               }`}
             >
               <Lock className="w-4 h-4" />
@@ -1020,7 +1125,7 @@ function AppInner() {
           <button
             onClick={handleResetDB}
             title="Restaurar Banco de Dados"
-            className="p-2.5 bg-black/40 hover:bg-black/70 hover:text-white border border-white/10 text-slate-300 rounded-xl cursor-pointer transition-all flex items-center justify-center"
+            className="p-2.5 bg-black/40 hover:bg-white/20 hover:text-white border border-white/10 text-slate-300 rounded-xl cursor-pointer transition-all flex items-center justify-center"
           >
             <RefreshCw className="w-4 h-4" />
           </button>
@@ -1195,7 +1300,7 @@ function AppInner() {
       )}
 
       {/* 👮 ROLE 2: MILITARY COMMAND / MONITORING DASHBOARD */}
-      {activeRole === 'police' && (
+      {activeRole === 'police' && !isVictimModalOpen && policeView === 'dashboard' && (
         <main className="flex-1 max-w-7xl w-full mx-auto p-4 md:p-6 space-y-6">
           
           {/* ⚡ STATISTICS BANNER & ACTIVE PANIC COUNTER */}
@@ -1220,7 +1325,10 @@ function AppInner() {
             </div>
 
             {/* Total Active Victims Enrolled */}
-            <div className="p-4 rounded-2xl bg-slate-950/80 border border-slate-800 flex items-center justify-between shadow-md">
+            <div 
+              onClick={() => setPoliceView('victims')}
+              className="p-4 rounded-2xl bg-slate-950/80 border border-slate-800 flex items-center justify-between shadow-md cursor-pointer hover:bg-slate-900 transition-colors"
+            >
               <div className="text-slate-300">
                 <span className="text-[10px] uppercase font-black opacity-80 tracking-widest block">ASSISTIDAS MONITORADAS (PROMUSE)</span>
                 <span className="text-3xl font-black block mt-1 tracking-tight text-slate-100">{db.victims.length}</span>
@@ -1513,7 +1621,106 @@ function AppInner() {
 
           </div>
 
-          {/* 📃 MIDDLE BANNER: ASSISTIDAS TAB & INCLUSION CONTROL */}
+          {/* 📃 MIDDLE BANNER: AÇÕES DE REGISTRO E CONTROLE */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {/* CADASTRAR MEDIDA PROTETIVA */}
+            <button
+              id="btn_new_victim"
+              onClick={() => { resetVictimForm(); setIsVictimModalOpen(true); }}
+              className="bg-emerald-900/40 hover:bg-emerald-800/60 border border-emerald-800/50 p-6 rounded-3xl shadow-xl flex flex-col items-center justify-center text-center transition-all cursor-pointer group"
+            >
+              <div className="w-16 h-16 rounded-full bg-emerald-950/80 text-emerald-400 flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
+                <PlusCircle className="w-8 h-8" />
+              </div>
+              <h3 className="text-xl font-black text-slate-100 uppercase tracking-widest mb-2">
+                Cadastrar Medida Protetiva
+              </h3>
+              <p className="text-sm text-slate-400">
+                Inserir nova assistida, definir nível de risco e vincular dados processuais.
+              </p>
+            </button>
+
+            {/* FICHA INDIVIDUAL */}
+            <button
+              onClick={() => setIsOccurrenceModalOpen(true)}
+              className="bg-slate-900 hover:bg-slate-800 border border-slate-800 p-6 rounded-3xl shadow-xl flex flex-col items-center justify-center text-center transition-all cursor-pointer group"
+            >
+              <div className="w-16 h-16 rounded-full bg-slate-950 text-slate-400 flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
+                <FileText className="w-8 h-8 text-emerald-400" />
+              </div>
+              <h3 className="text-xl font-black text-slate-100 uppercase tracking-widest mb-2">
+                Ficha Individual
+              </h3>
+              <p className="text-sm text-slate-400">
+                Registrar visita preventiva, ocorrência de descumprimento ou emitir relatório PROMUSE.
+              </p>
+            </button>
+          </div>
+
+          {/* 📬 LOWER PANEL: OCCURRENCES HISTORY */}
+          <div className="bg-slate-950 rounded-3xl border border-slate-850 p-5 shadow-xl space-y-4 w-full">
+            <div className="flex items-center justify-between border-b border-slate-850 pb-3">
+              <div className="flex items-center gap-2">
+                <FileText className="w-5 h-5 text-emerald-400" />
+                <h3 className="text-xs font-black text-slate-100 uppercase tracking-widest">
+                  Histórico de Acompanhamento (PROMUSE)
+                </h3>
+              </div>
+              <button
+                onClick={() => setIsOccurrenceModalOpen(true)}
+                className="text-[10px] bg-slate-900 hover:bg-slate-800 text-white font-bold tracking-wider uppercase px-2.5 py-1 rounded-md cursor-pointer border border-slate-800"
+              >
+                FICHA INDIVIDUAL
+              </button>
+            </div>
+
+            <div className="space-y-2 max-h-[350px] overflow-y-auto pr-1">
+              {db.occurrences.map((o) => (
+                <div key={o.id} className="bg-slate-900 border border-slate-850 p-3 rounded-xl space-y-1.5 text-xs text-slate-350">
+                  <div className="flex justify-between items-center text-[10px]">
+                    <span className="font-extrabold text-slate-200 underline">{o.victimName}</span>
+                    <div className="flex gap-2">
+                      {o.cadgProtocol && <span className="font-mono text-emerald-400 font-bold">CADG: {o.cadgProtocol}</span>}
+                      <span className="text-slate-500">{new Date(o.date).toLocaleDateString('pt-BR')}</span>
+                    </div>
+                  </div>
+                  <div>
+                    <span className="font-black bg-emerald-950 text-emerald-400 px-2.5 py-0.5 rounded text-[9px] uppercase tracking-wider">{o.type}</span>
+                  </div>
+                  <p className="italic leading-relaxed text-[11px] text-slate-300">"{o.description}"</p>
+                  <div className="flex justify-between items-center text-[9.5px] border-t border-slate-850 pt-1.5 text-slate-450 mt-1">
+                    <span>Registrado por: <strong>{o.registeredByOfficer}</strong></span>
+                    {o.actionsTaken && <span className="bg-slate-950 px-1.5 py-0.5 rounded text-emerald-300 max-w-[150px] truncate" title={o.actionsTaken}>Ação: {o.actionsTaken}</span>}
+                  </div>
+                </div>
+              ))}
+
+              {db.occurrences.length === 0 && (
+                <p className="text-center text-slate-500 italic text-xs py-8">Nenhuma ronda policial cadastrada.</p>
+              )}
+            </div>
+          </div>
+
+        </main>
+      )}
+
+      {/* 👮 ROLE 2: MILITARY COMMAND / VICTIMS LIST */}
+      {activeRole === 'police' && !isVictimModalOpen && policeView === 'victims' && (
+        <main className="flex-1 max-w-7xl w-full mx-auto p-4 md:p-6 space-y-6">
+          <div className="flex items-center justify-between mb-2">
+            <h2 className="text-2xl font-black text-slate-100 uppercase tracking-widest flex items-center gap-3">
+              <UsersRound className="w-6 h-6 text-emerald-400" />
+              ASSISTIDAS MONITORADAS
+            </h2>
+            <button
+              onClick={() => setPoliceView('dashboard')}
+              className="px-4 py-2 bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-400 text-xs font-bold rounded-xl flex items-center gap-2 transition-colors cursor-pointer"
+            >
+              <CheckCircle className="w-4 h-4" />
+              Voltar ao Dashboard
+            </button>
+          </div>
+
           <div className="bg-slate-950 rounded-3xl border border-slate-850 p-5 shadow-xl space-y-4">
             
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-850 pb-4">
@@ -1527,7 +1734,7 @@ function AppInner() {
 
               <div className="flex flex-wrap items-center gap-2">
                 <button
-                  id="btn_new_victim"
+                  id="btn_new_victim_list"
                   onClick={() => { resetVictimForm(); setIsVictimModalOpen(true); }}
                   className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl flex items-center gap-1.5 transition-colors cursor-pointer"
                 >
@@ -1539,7 +1746,7 @@ function AppInner() {
                   className="px-4 py-2 bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-200 font-bold text-xs rounded-xl flex items-center gap-1.5 transition-colors cursor-pointer"
                 >
                   <FileText className="w-4 h-4 text-emerald-400" />
-                  Registrar Ronda/Acompanhamento
+                  FICHA INDIVIDUAL
                 </button>
               </div>
             </div>
@@ -1641,6 +1848,17 @@ function AppInner() {
                       <td className="px-5 py-4 text-right">
                         <div className="flex items-center justify-end gap-1 px-1">
                           <button
+                            onClick={() => {
+                              setNewOccurrenceForm(prev => ({ ...prev, victimId: v.id }));
+                              setIsOccurrenceModalOpen(true);
+                            }}
+                            className="px-2 py-1.5 bg-emerald-950/40 hover:bg-emerald-900/60 border border-emerald-900/35 hover:text-white text-emerald-400 font-bold tracking-wider uppercase text-[9px] rounded-lg cursor-pointer flex items-center gap-1"
+                            title="Ficha Individual"
+                          >
+                            <FileText className="w-3 h-3" />
+                            FICHA INDIVIDUAL
+                          </button>
+                          <button
                             onClick={() => handleEditVictimClick(v)}
                             className="p-1.5 bg-slate-900 hover:bg-slate-840 border border-slate-800 hover:text-white text-slate-450 rounded-lg cursor-pointer"
                             title="Editar Assistida"
@@ -1671,55 +1889,13 @@ function AppInner() {
             </div>
 
           </div>
-
-          {/* 📬 LOWER PANEL: OCCURRENCES HISTORY */}
-          <div className="bg-slate-950 rounded-3xl border border-slate-850 p-5 shadow-xl space-y-4 w-full">
-            <div className="flex items-center justify-between border-b border-slate-850 pb-3">
-              <div className="flex items-center gap-2">
-                <FileText className="w-5 h-5 text-emerald-400" />
-                <h3 className="text-xs font-black text-slate-100 uppercase tracking-widest">
-                  Histórico de Acompanhamento (PROMUSE)
-                </h3>
-              </div>
-              <button
-                onClick={() => setIsOccurrenceModalOpen(true)}
-                className="text-[10px] bg-slate-900 hover:bg-slate-800 text-white font-bold tracking-wider uppercase px-2.5 py-1 rounded-md cursor-pointer border border-slate-800"
-              >
-                Registrar Ronda
-              </button>
-            </div>
-
-            <div className="space-y-2 max-h-[350px] overflow-y-auto pr-1">
-              {db.occurrences.map((o) => (
-                <div key={o.id} className="bg-slate-900 border border-slate-850 p-3 rounded-xl space-y-1.5 text-xs text-slate-350">
-                  <div className="flex justify-between items-center text-[10px]">
-                    <span className="font-extrabold text-slate-200 underline">{o.victimName}</span>
-                    <span className="text-slate-500">{new Date(o.date).toLocaleDateString('pt-BR')}</span>
-                  </div>
-                  <div>
-                    <span className="font-black bg-emerald-950 text-emerald-400 px-2.5 py-0.5 rounded text-[9px] uppercase tracking-wider">{o.type}</span>
-                  </div>
-                  <p className="italic leading-relaxed text-[11px] text-slate-300">"{o.description}"</p>
-                  <div className="flex justify-between items-center text-[9.5px] border-t border-slate-850 pt-1.5 text-slate-450 mt-1">
-                    <span>Registrado por: <strong>{o.registeredByOfficer}</strong></span>
-                    {o.actionsTaken && <span className="bg-slate-950 px-1.5 py-0.5 rounded text-emerald-300 max-w-[150px] truncate" title={o.actionsTaken}>Ação: {o.actionsTaken}</span>}
-                  </div>
-                </div>
-              ))}
-
-              {db.occurrences.length === 0 && (
-                <p className="text-center text-slate-500 italic text-xs py-8">Nenhuma ronda policial cadastrada.</p>
-              )}
-            </div>
-          </div>
-
         </main>
       )}
 
-      {/* 🔮 VICTIM INCLUSION MODAL */}
+      {/* 🔮 VICTIM INCLUSION MODAL (NOW PAGE) */}
       {isVictimModalOpen && (
-        <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50 overflow-y-auto">
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-xl w-full p-6 shadow-2xl relative space-y-4 max-h-[90vh] overflow-y-auto">
+        <main className="flex-1 max-w-4xl w-full mx-auto p-4 md:p-6 space-y-6">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full p-6 md:p-8 shadow-2xl relative space-y-6">
             <button 
               onClick={() => setIsVictimModalOpen(false)}
               className="absolute top-4 right-4 text-slate-400 hover:text-white"
@@ -1888,7 +2064,7 @@ function AppInner() {
                       className="w-full bg-slate-900 p-2 rounded border border-slate-800 focus:outline-none"
                     />
                   </div>
-                  <div>
+                  <div className="col-span-1 sm:col-span-2">
                     <label className="block text-[9.5px] text-slate-400 font-bold uppercase mb-0.5">Nome do Réu / Agressor</label>
                     <input
                       type="text"
@@ -1898,6 +2074,40 @@ function AppInner() {
                       placeholder="Nome completo do réu"
                       className="w-full bg-slate-900 p-2 rounded border border-slate-800 focus:outline-none"
                     />
+                  </div>
+                  <div className="col-span-1 sm:col-span-2">
+                    <label className="block text-[9.5px] text-slate-400 font-bold uppercase mb-0.5">Foto do Agressor (Opcional)</label>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) {
+                          const reader = new FileReader();
+                          reader.onloadend = () => {
+                            setNewVictimForm({...newVictimForm, aggressorPhotoUrl: reader.result as string});
+                          };
+                          reader.readAsDataURL(file);
+                        }
+                      }}
+                      className="w-full text-xs text-slate-400 file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-slate-800 file:text-emerald-400 hover:file:bg-slate-700 bg-slate-900 rounded border border-slate-800"
+                    />
+                    {newVictimForm.aggressorPhotoUrl && (
+                      <div className="mt-3 h-32 w-32 rounded bg-slate-800 overflow-hidden border border-slate-700 relative group">
+                        <img 
+                          src={newVictimForm.aggressorPhotoUrl} 
+                          alt="Preview da foto do agressor" 
+                          className="w-full h-full object-cover"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setNewVictimForm({...newVictimForm, aggressorPhotoUrl: ''})}
+                          className="absolute inset-0 bg-red-900/80 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                        >
+                          <Trash2 className="w-6 h-6 text-white" />
+                        </button>
+                      </div>
+                    )}
                   </div>
                   <div className="col-span-1 sm:col-span-2">
                     <label className="block text-[9.5px] text-slate-400 font-bold uppercase mb-0.5">Magistrado(a) Emitente</label>
@@ -1962,7 +2172,7 @@ function AppInner() {
 
             </form>
           </div>
-        </div>
+        </main>
       )}
 
 
@@ -1981,15 +2191,15 @@ function AppInner() {
             <div>
               <h3 className="text-sm font-black text-slate-100 uppercase tracking-wider flex items-center gap-1.5">
                 <FileText className="w-5 h-5 text-emerald-400" />
-                Registrar Ronda de Fiscalização / Incidente
+                FICHA INDIVIDUAL DE ATENDIMENTO 5º BPM
               </h3>
-              <p className="text-xs text-slate-400 mt-0.5">Adicione o relatório periódico de visitas ou violações cometidas pelo réu.</p>
+              <p className="text-xs text-slate-400 mt-0.5">Preencha os dados da evolução e acompanhamento da assistida.</p>
             </div>
 
             <form onSubmit={handleSaveOccurrence} className="space-y-4 text-xs text-slate-350">
               
               <div>
-                <label className="block text-[10px] text-slate-400 font-bold uppercase mb-1">Vítima Relacionada</label>
+                <label className="block text-[10px] text-slate-400 font-bold uppercase mb-1">Assistida Relacionada</label>
                 <select
                   required
                   value={newOccurrenceForm.victimId}
@@ -2003,71 +2213,107 @@ function AppInner() {
                 </select>
               </div>
 
-              <div>
-                <label className="block text-[10px] text-slate-400 font-bold uppercase mb-1">Tipo de Acompanhamento</label>
-                <select
-                  value={newOccurrenceForm.type}
-                  onChange={(e) => setNewOccurrenceForm({...newOccurrenceForm, type: e.target.value as any})}
-                  className="w-full bg-slate-955 p-2.5 rounded-lg border border-slate-800 text-slate-250 font-bold"
-                >
-                  <option value="Visita Preventiva">Visita Preventiva Regular</option>
-                  <option value="Ronda PROMUSE">Ronda Preventiva nas Proximidades</option>
-                  <option value="Descumprimento de Medida">Descumprimento de Medida Judicial</option>
-                  <option value="Ameaça/Agressão">Ameaça ou Agressão física constatada</option>
-                  <option value="Outro">Outras Condutas / Ocorrências específicas</option>
-                </select>
+              {newOccurrenceForm.victimId && (() => {
+                const v = db.victims.find(vic => vic.id === newOccurrenceForm.victimId);
+                if (!v) return null;
+                return (
+                  <div className="bg-slate-950 border border-slate-800 p-3 rounded-lg text-[10px] space-y-1.5 text-slate-300 font-mono shadow-inner">
+                    <div className="flex gap-2"><span className="text-slate-500 min-w-[100px] font-bold">PROCESSO Nº:</span> <span>{v.protectiveOrder?.orderNumber || 'N/A'}</span></div>
+                    <div className="flex gap-2"><span className="text-slate-500 min-w-[100px] font-bold">VÍTIMA:</span> <span>{v.name}</span></div>
+                    <div className="flex gap-2"><span className="text-slate-500 min-w-[100px] font-bold">ENDEREÇO:</span> <span>{v.address}</span></div>
+                    <div className="flex gap-2"><span className="text-slate-500 min-w-[100px] font-bold">TELEFONE:</span> <span>{v.phone}</span></div>
+                    <div className="flex gap-2"><span className="text-slate-500 min-w-[100px] font-bold">VALIDADE MPU:</span> <span>{v.protectiveOrder?.expiryDate ? new Date(v.protectiveOrder.expiryDate + 'T12:00:00').toLocaleDateString('pt-BR') : 'N/A'}</span></div>
+                    <div className="flex gap-2"><span className="text-slate-500 min-w-[100px] font-bold">DISTÂNCIA:</span> <span>{v.protectiveOrder?.distanceLimit || '100 metros'}</span></div>
+                    <div className="flex gap-2"><span className="text-slate-500 min-w-[100px] font-bold">AUTOR:</span> <span>{v.protectiveOrder?.defendantName || 'N/A'}</span></div>
+                  </div>
+                )
+              })()}
+
+              <div className="pt-2 border-t border-slate-800">
+                <h4 className="text-xs font-bold text-slate-200 uppercase mb-3 flex items-center gap-1.5"><Activity className="w-3.5 h-3.5 text-blue-400" /> EVOLUÇÃO</h4>
+                
+                <div className="grid grid-cols-2 gap-3 mb-3">
+                  <div>
+                    <label className="block text-[10px] text-slate-400 font-bold uppercase mb-1">Data</label>
+                    <input
+                      type="date"
+                      required
+                      value={newOccurrenceForm.date}
+                      onChange={(e) => setNewOccurrenceForm({...newOccurrenceForm, date: e.target.value})}
+                      className="w-full bg-slate-955 p-2.5 rounded-lg border border-slate-800 text-slate-200"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] text-slate-400 font-bold uppercase mb-1">Protocolo CADG</label>
+                    <input
+                      type="text"
+                      value={newOccurrenceForm.cadgProtocol}
+                      onChange={(e) => setNewOccurrenceForm({...newOccurrenceForm, cadgProtocol: e.target.value})}
+                      placeholder="Ex: 5833446"
+                      className="w-full bg-slate-955 p-2.5 rounded-lg border border-slate-800 text-slate-200"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-[10px] text-slate-400 font-bold uppercase mb-1">Histórico da Evolução</label>
+                  <textarea
+                    required
+                    value={newOccurrenceForm.description}
+                    onChange={(e) => setNewOccurrenceForm({...newOccurrenceForm, description: e.target.value})}
+                    placeholder="Descreva o andamento, ex: Em conversa via áudios do WhatsApp, a vítima foi informada que a MPU foi renovada..."
+                    rows={4}
+                    className="w-full bg-slate-955 p-2 rounded-lg border border-slate-800 text-slate-200 resize-none font-sans"
+                  />
+                </div>
               </div>
 
-              <div>
-                <label className="block text-[10px] text-slate-400 font-bold uppercase mb-1">Descrição Detalhada do Ocorrido</label>
-                <textarea
-                  required
-                  value={newOccurrenceForm.description}
-                  onChange={(e) => setNewOccurrenceForm({...newOccurrenceForm, description: e.target.value})}
-                  placeholder="Relatório oficial da guarnição, ex: Visita feita à residência da Maria. Mesma afirma que está conseguindo trabalhar normalmente sem assédio do agressor."
-                  rows={4}
-                  className="w-full bg-slate-955 p-2 rounded-lg border border-slate-800 text-slate-200 resize-none font-sans"
-                />
+              <div className="flex justify-between items-center pt-2">
+                <div>
+                  {newOccurrenceForm.victimId && (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        if (printRef.current) {
+                          handlePrint();
+                        } else {
+                          console.error("printRef is not available");
+                        }
+                      }}
+                      className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold rounded-lg cursor-pointer flex items-center gap-1.5 transition-colors"
+                    >
+                      <Printer className="w-4 h-4 text-sky-400" />
+                      Imprimir Ficha
+                    </button>
+                  )}
+                </div>
+                <div className="flex justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setIsOccurrenceModalOpen(false)}
+                    className="px-4 py-2 bg-slate-955 border border-slate-800 text-slate-400 rounded-lg cursor-pointer hover:bg-slate-850"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="submit"
+                    className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-lg cursor-pointer"
+                  >
+                    Salvar Evolução
+                  </button>
+                </div>
               </div>
 
-              <div>
-                <label className="block text-[10px] text-slate-400 font-bold uppercase mb-1">Policial Relator</label>
-                <input
-                  type="text"
-                  required
-                  value={newOccurrenceForm.registeredByOfficer}
-                  onChange={(e) => setNewOccurrenceForm({...newOccurrenceForm, registeredByOfficer: e.target.value})}
-                  className="w-full bg-slate-955 p-2.5 rounded-lg border border-slate-800 text-slate-200"
-                />
+              {/* Hidden Print Component */}
+              <div style={{ position: 'absolute', top: '-10000px', left: '-10000px' }}>
+                {newOccurrenceForm.victimId && (() => {
+                  const vic = db.victims.find(v => v.id === newOccurrenceForm.victimId);
+                  if (!vic) return null;
+                  const occs = db.occurrences.filter(o => o.victimId === newOccurrenceForm.victimId);
+                  return <PrintableFicha ref={printRef} victim={vic} occurrences={occs} />;
+                })()}
               </div>
-
-              <div>
-                <label className="block text-[10px] text-slate-400 font-bold uppercase mb-1">Ações Corretivas / Encaminhamentos</label>
-                <input
-                  type="text"
-                  value={newOccurrenceForm.actionsTaken}
-                  onChange={(e) => setNewOccurrenceForm({...newOccurrenceForm, actionsTaken: e.target.value})}
-                  placeholder="Ex: Auto boletim de ocorrência complementar ou relatório ao Juiz."
-                  className="w-full bg-slate-955 p-2.5 rounded-lg border border-slate-800 text-slate-200"
-                />
-              </div>
-
-              <div className="flex justify-end gap-2 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setIsOccurrenceModalOpen(false)}
-                  className="px-4 py-2 bg-slate-955 border border-slate-800 text-slate-400 rounded-lg cursor-pointer hover:bg-slate-850"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-lg cursor-pointer"
-                >
-                  Registrar Ocorrência
-                </button>
-              </div>
-
             </form>
           </div>
         </div>

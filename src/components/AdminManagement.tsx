@@ -10,7 +10,8 @@ import {
   signInWithPopup, 
   signOut, 
   onAuthStateChanged, 
-  User 
+  User,
+  getAuth
 } from 'firebase/auth';
 import { 
   doc, 
@@ -43,6 +44,8 @@ interface AdminAccount {
   name: string;
   role: string;
   status: 'Ativo' | 'Inativo';
+  phone?: string;
+  unit?: string;
   addedBy?: string;
   createdAt?: any;
 }
@@ -59,11 +62,14 @@ export default function AdminManagement() {
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
+  const [isEditingAdmin, setIsEditingAdmin] = useState(false);
 
   // New Admin Form State
   const [newAdminForm, setNewAdminForm] = useState({
     email: '',
     name: '',
+    phone: '',
+    unit: 'COXIM',
     role: 'admin',
     status: 'Ativo' as 'Ativo' | 'Inativo'
   });
@@ -91,6 +97,10 @@ export default function AdminManagement() {
             const docRef = doc(db, 'admins', 'allanjonesms@gmail.com');
             const docSnap = await getDoc(docRef);
             if (!docSnap.exists()) {
+              const authInstance = getAuth();
+              console.log("USER:", authInstance.currentUser);
+              console.log("UID:", authInstance.currentUser?.uid);
+              console.log("EMAIL:", authInstance.currentUser?.email);
               await setDoc(docRef, {
                 email: 'allanjonesms@gmail.com',
                 name: user.displayName || 'Allan Jones',
@@ -154,6 +164,8 @@ export default function AdminManagement() {
           name: d.name || 'Sem nome informado',
           role: d.role || 'admin',
           status: d.status || 'Inativo',
+          phone: d.phone || '',
+          unit: d.unit || '',
           addedBy: d.addedBy || 'N/A',
           createdAt: d.createdAt
         });
@@ -200,7 +212,36 @@ export default function AdminManagement() {
     }
   };
 
-  // Handle Add New Admin
+  // Handle Edit Admin Click
+  const handleEditAdminClick = (admin: AdminAccount) => {
+    setNewAdminForm({
+      email: admin.email,
+      name: admin.name,
+      phone: admin.phone || '',
+      unit: admin.unit || 'COXIM',
+      role: admin.role as 'master' | 'admin',
+      status: admin.status
+    });
+    setIsEditingAdmin(true);
+    setErrorMsg(null);
+    setSuccessMsg(null);
+  };
+
+  const handleCancelEdit = () => {
+    setNewAdminForm({
+      email: '',
+      name: '',
+      phone: '',
+      unit: 'COXIM',
+      role: 'admin',
+      status: 'Ativo'
+    });
+    setIsEditingAdmin(false);
+    setErrorMsg(null);
+    setSuccessMsg(null);
+  };
+
+  // Handle Add/Edit Admin
   const handleAddAdmin = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg(null);
@@ -219,25 +260,27 @@ export default function AdminManagement() {
     try {
       const adminDocRef = doc(db, 'admins', targetEmail);
       
-      await setDoc(adminDocRef, {
+      const adminData: any = {
         email: targetEmail,
         name: newAdminForm.name.trim() || 'Administrador PROMUSE',
+        phone: newAdminForm.phone.trim(),
+        unit: newAdminForm.unit,
         role: newAdminForm.role,
-        status: newAdminForm.status,
-        addedBy: currentUser?.email || 'Sistema',
-        createdAt: Timestamp.now()
-      });
+        status: newAdminForm.status
+      };
 
-      setSuccessMsg(`Administrador '${targetEmail}' cadastrado com sucesso!`);
-      setNewAdminForm({
-        email: '',
-        name: '',
-        role: 'admin',
-        status: 'Ativo'
-      });
+      if (!isEditingAdmin) {
+        adminData.addedBy = currentUser?.email || 'Sistema';
+        adminData.createdAt = Timestamp.now();
+      }
+
+      await setDoc(adminDocRef, adminData, { merge: true });
+
+      setSuccessMsg(isEditingAdmin ? `Administrador '${targetEmail}' atualizado com sucesso!` : `Administrador '${targetEmail}' cadastrado com sucesso!`);
+      handleCancelEdit();
     } catch (error) {
-      setErrorMsg('Erro de permissão ou de conexão ao cadastrar administrador.');
-      handleFirestoreError(error, OperationType.CREATE, path);
+      setErrorMsg('Erro de permissão ou de conexão ao salvar administrador.');
+      handleFirestoreError(error, isEditingAdmin ? OperationType.UPDATE : OperationType.CREATE, path);
     } finally {
       setActionLoading(null);
     }
@@ -259,6 +302,10 @@ export default function AdminManagement() {
     const path = `admins/${targetEmail}`;
     try {
       const adminDocRef = doc(db, 'admins', targetEmail);
+      const authInstance = getAuth();
+      console.log("USER:", authInstance.currentUser);
+      console.log("UID:", authInstance.currentUser?.uid);
+      console.log("EMAIL:", authInstance.currentUser?.email);
       await updateDoc(adminDocRef, {
         status: newStatus
       });
@@ -289,6 +336,10 @@ export default function AdminManagement() {
     const path = `admins/${adminEmail}`;
     try {
       const adminDocRef = doc(db, 'admins', adminEmail);
+      const authInstance = getAuth();
+      console.log("USER:", authInstance.currentUser);
+      console.log("UID:", authInstance.currentUser?.uid);
+      console.log("EMAIL:", authInstance.currentUser?.email);
       await deleteDoc(adminDocRef);
       setSuccessMsg(`Acesso do administrador '${adminEmail}' excluído com sucesso.`);
     } catch (error) {
@@ -477,6 +528,7 @@ export default function AdminManagement() {
                   <tr className="border-b border-slate-850 text-[10px] text-slate-400 uppercase tracking-wider">
                     <th className="pb-3 font-extrabold">E-mail Google</th>
                     <th className="pb-3 font-extrabold hidden sm:table-cell">Nome Completo</th>
+                    <th className="pb-3 font-extrabold hidden md:table-cell">Contato/Unid.</th>
                     <th className="pb-3 font-extrabold text-center">Nível</th>
                     <th className="pb-3 font-extrabold text-center">Status</th>
                     <th className="pb-3 font-extrabold text-right">Ações</th>
@@ -497,6 +549,12 @@ export default function AdminManagement() {
                       </td>
                       <td className="py-3.5 hidden sm:table-cell pr-2 font-medium text-slate-400 truncate max-w-[160px]" title={admin.name}>
                         {admin.name}
+                      </td>
+                      <td className="py-3.5 hidden md:table-cell pr-2 font-medium text-slate-400">
+                        <div className="flex flex-col">
+                          <span className="text-[10px] font-mono">{admin.phone || '—'}</span>
+                          <span className="text-[9px] uppercase font-bold text-slate-500">{admin.unit || '—'}</span>
+                        </div>
                       </td>
                       <td className="py-3.5 text-center">
                         <span className={`px-2 py-0.5 rounded text-[9px] font-bold ${
@@ -527,18 +585,28 @@ export default function AdminManagement() {
                       <td className="py-3.5 text-right">
                         <div className="flex items-center justify-end gap-1.5">
                           {admin.email !== 'allanjonesms@gmail.com' ? (
-                            <button
-                              onClick={() => handleDeleteAdmin(admin.email)}
-                              disabled={actionLoading !== null}
-                              title="Excluir acesso deste administrador"
-                              className="p-1 px-2.5 bg-slate-900 hover:bg-red-950/40 border border-slate-800 hover:border-red-900 hover:text-red-400 rounded-md text-slate-400 cursor-pointer transition-colors"
-                            >
-                              {actionLoading === `delete-${admin.email}` ? (
-                                <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                              ) : (
-                                <Trash2 className="w-3.5 h-3.5" />
-                              )}
-                            </button>
+                            <>
+                              <button
+                                onClick={() => handleEditAdminClick(admin)}
+                                disabled={actionLoading !== null}
+                                title="Editar administrador"
+                                className="p-1 px-2.5 bg-slate-900 hover:bg-slate-800 border border-slate-800 hover:border-slate-700 hover:text-slate-300 rounded-md text-slate-400 cursor-pointer transition-colors"
+                              >
+                                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
+                              </button>
+                              <button
+                                onClick={() => handleDeleteAdmin(admin.email)}
+                                disabled={actionLoading !== null}
+                                title="Excluir acesso deste administrador"
+                                className="p-1 px-2.5 bg-slate-900 hover:bg-red-950/40 border border-slate-800 hover:border-red-900 hover:text-red-400 rounded-md text-slate-400 cursor-pointer transition-colors"
+                              >
+                                {actionLoading === `delete-${admin.email}` ? (
+                                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                ) : (
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                )}
+                              </button>
+                            </>
                           ) : (
                             <span className="text-[10px] text-slate-600 select-none italic pr-1">Imutável</span>
                           )}
@@ -565,7 +633,7 @@ export default function AdminManagement() {
           <div className="bg-slate-950 rounded-3xl border border-slate-850 p-5 shadow-xl space-y-4">
             <h3 className="text-xs font-black text-slate-100 uppercase tracking-widest flex items-center gap-1.5 pb-3 border-b border-slate-850">
               <UserPlus className="w-4.5 h-4.5 text-emerald-450" />
-              Adicionar Administrador
+              {isEditingAdmin ? 'Editar Administrador' : 'Adicionar Administrador'}
             </h3>
 
             <form onSubmit={handleAddAdmin} className="space-y-4">
@@ -579,10 +647,10 @@ export default function AdminManagement() {
                   type="email"
                   required
                   value={newAdminForm.email}
-                  disabled={actionLoading !== null}
+                  disabled={actionLoading !== null || isEditingAdmin}
                   onChange={(e) => setNewAdminForm({...newAdminForm, email: e.target.value})}
                   placeholder="exemplo@gmail.com"
-                  className="w-full text-xs bg-slate-900 p-2.5 rounded-lg border border-slate-800 text-slate-200 focus:outline-none focus:border-emerald-500"
+                  className="w-full text-xs bg-slate-900 p-2.5 rounded-lg border border-slate-800 text-slate-200 focus:outline-none focus:border-emerald-500 disabled:opacity-50"
                 />
               </div>
 
@@ -600,6 +668,39 @@ export default function AdminManagement() {
                   placeholder="Ex: Tenente PM Souza"
                   className="w-full text-xs bg-slate-900 p-2.5 rounded-lg border border-slate-800 text-slate-200 focus:outline-none focus:border-emerald-500"
                 />
+              </div>
+
+              <div>
+                <label className="block text-[10px] text-slate-400 font-extrabold uppercase mb-1 flex items-center gap-1">
+                  <Shield className="w-3 h-3 text-slate-500" />
+                  Telefone
+                </label>
+                <input
+                  type="text"
+                  value={newAdminForm.phone}
+                  disabled={actionLoading !== null}
+                  onChange={(e) => setNewAdminForm({...newAdminForm, phone: e.target.value})}
+                  placeholder="(00) 00000-0000"
+                  className="w-full text-xs bg-slate-900 p-2.5 rounded-lg border border-slate-800 text-slate-200 focus:outline-none focus:border-emerald-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[10px] text-slate-400 font-extrabold uppercase mb-1 flex items-center gap-1">
+                  <Shield className="w-3 h-3 text-slate-500" />
+                  Unidade
+                </label>
+                <select
+                  value={newAdminForm.unit}
+                  disabled={actionLoading !== null}
+                  onChange={(e) => setNewAdminForm({...newAdminForm, unit: e.target.value})}
+                  className="w-full text-xs font-bold bg-slate-900 p-2.5 rounded-lg border border-slate-800 text-slate-200"
+                >
+                  <option value="COXIM">COXIM</option>
+                  <option value="RIO VERDE">RIO VERDE</option>
+                  <option value="ALCINÓPOLIS">ALCINÓPOLIS</option>
+                  <option value="SONORA">SONORA</option>
+                </select>
               </div>
 
               <div>
@@ -634,20 +735,32 @@ export default function AdminManagement() {
                 </select>
               </div>
 
-              <button
-                type="submit"
-                disabled={actionLoading !== null}
-                className="w-full py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold tracking-wide uppercase text-xs flex items-center justify-center gap-1.5 shadow-md cursor-pointer transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {actionLoading === 'creating' ? (
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                ) : (
-                  <>
-                    <UserPlus className="w-4 h-4" />
-                    Registrar Acesso
-                  </>
+              <div className="flex gap-2">
+                <button
+                  type="submit"
+                  disabled={actionLoading !== null}
+                  className="flex-1 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold tracking-wide uppercase text-xs flex items-center justify-center gap-1.5 shadow-md cursor-pointer transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {actionLoading === 'creating' ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <>
+                      <UserPlus className="w-4 h-4" />
+                      {isEditingAdmin ? 'Atualizar' : 'Registrar'}
+                    </>
+                  )}
+                </button>
+                {isEditingAdmin && (
+                  <button
+                    type="button"
+                    onClick={handleCancelEdit}
+                    disabled={actionLoading !== null}
+                    className="py-2.5 px-4 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-extrabold tracking-wide uppercase text-xs flex items-center justify-center gap-1.5 shadow-md cursor-pointer transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    Cancelar
+                  </button>
                 )}
-              </button>
+              </div>
 
             </form>
           </div>
