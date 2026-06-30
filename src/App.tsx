@@ -35,7 +35,7 @@ import { PrintableFicha } from './components/PrintableFicha';
 import { AppDB, Victim, PanicAlert, Occurrence } from './types';
 import VictimPortal from './components/VictimPortal';
 import AdminManagement from './components/AdminManagement';
-import { APIProvider } from '@vis.gl/react-google-maps';
+import { APIProvider, Map as GoogleMap, AdvancedMarker, Pin } from '@vis.gl/react-google-maps';
 import AddressInput from './components/AddressInput';
 import { onAuthStateChanged, User } from 'firebase/auth';
 import { auth } from './firebase';
@@ -71,6 +71,7 @@ function AppInner() {
   // App UI State
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [isAdminAuthorized, setIsAdminAuthorized] = useState(false);
+  const [adminUnit, setAdminUnit] = useState<string>('COXIM');
   const [checkingAuth, setCheckingAuth] = useState(true);
   const [syncingData, setSyncingData] = useState(false);
   const [syncStatus, setSyncStatus] = useState<'idle' | 'success' | 'error'>('idle');
@@ -398,18 +399,20 @@ function AppInner() {
             const docSnap = await getDoc(docRef);
             if (!docSnap.exists()) {
               const authInstance = getAuth();
-              console.log("USER:", authInstance.currentUser);
-              console.log("UID:", authInstance.currentUser?.uid);
-              console.log("EMAIL:", authInstance.currentUser?.email);
               await setDoc(docRef, {
                 email: 'allanjonesms@gmail.com',
                 name: user.displayName || 'Allan Jones',
+                unit: 'COXIM',
                 role: 'master',
                 status: 'Ativo',
                 addedBy: 'Instanciação Automática',
                 createdAt: Timestamp.now()
               });
-              console.log('Master Admin auto-provisioned successfully in Firestore.');
+              setAdminUnit('COXIM');
+            } else {
+              if (docSnap.data().unit) {
+                setAdminUnit(docSnap.data().unit);
+              }
             }
           } catch (error) {
             console.error("Error auto-provisioning Master Admin:", error);
@@ -426,6 +429,9 @@ function AppInner() {
           
           if (docSnap.exists() && docSnap.data().status === 'Ativo') {
             setIsAdminAuthorized(true);
+            if (docSnap.data().unit) {
+              setAdminUnit(docSnap.data().unit);
+            }
           }
         } catch (error) {
           console.error("Error verifying admin authority at root status:", error);
@@ -442,6 +448,18 @@ function AppInner() {
       fetchDatabase();
     }
   }, [isAdminAuthorized, checkingAuth]);
+
+  const getMapCenter = (unit: string) => {
+    switch (unit) {
+      case 'RIO VERDE': return { lat: -18.9181, lng: -54.8442 };
+      case 'PEDRO GOMES': return { lat: -18.1025, lng: -54.5519 };
+      case 'ALCINÓPOLIS': return { lat: -18.3242, lng: -53.7028 };
+      case 'SONORA': return { lat: -17.5756, lng: -54.7431 };
+      case 'COXIM':
+      default:
+        return { lat: -18.5067, lng: -54.7600 };
+    }
+  };
 
   // Identify offline/locally created entries (prefixed with _fb_)
   const getUnsyncedData = () => {
@@ -623,7 +641,7 @@ function AppInner() {
     // Trigger visual role notification and SMS cellular simulators dispatch
     const currentTimeString = new Date().toLocaleTimeString('pt-BR');
     
-    const smsMessage = `🚨 ALERTA PROMUSE 5°BPM 🚨\nBOTAO DE PANICO acionado por: ${vName}.\nContato: ${vPhone}\n📍 Local Coxim: Bairro Senhor Divino (${location.addressDescription})\nCoordenadas: ${location.latitude.toFixed(5)}, ${location.longitude.toFixed(5)}\nUnidades de servico do 5°BPM Coxim-MS mobilizadas de imediato.`;
+    const smsMessage = `🚨 ALERTA PROMUSE 🚨\nBOTAO DE PANICO acionado por: ${vName}.\nContato: ${vPhone}\n📍 Local: ${location.addressDescription}\nCoordenadas: ${location.latitude.toFixed(5)}, ${location.longitude.toFixed(5)}\nUnidades de serviço mobilizadas de imediato.`;
     
     const newSMSLogs = [
       {
@@ -636,7 +654,7 @@ function AppInner() {
       {
         id: 'sms_' + Date.now() + '_2',
         timestamp: currentTimeString,
-        receiver: 'Coordenadora PROMUSE Coxim - Cb PM Fernanda',
+        receiver: 'Coordenadora PROMUSE',
         message: smsMessage,
         type: 'SMS' as const
       },
@@ -692,7 +710,7 @@ function AppInner() {
         type: type as any,
         description,
         registeredByOfficer: 'Auto-relato da Vítima',
-        actionsTaken: 'Aguardando revisão policial no quartel de Coxim.'
+        actionsTaken: 'Aguardando revisão policial no quartel.'
       };
       const updatedOccs = [newOcc, ...db.occurrences];
       updateDbState({ ...db, occurrences: updatedOccs });
@@ -701,7 +719,7 @@ function AppInner() {
 
   // Reset database to default seed helper
   const handleResetDB = async () => {
-    if (window.confirm('Tem certeza que deseja restaurar o banco de dados original de Coxim-MS?')) {
+    if (window.confirm('Tem certeza que deseja restaurar o banco de dados original?')) {
       try {
         const res = await firebaseApiFetch('/api/reset', { method: 'POST' });
         if (res.ok) {
@@ -877,7 +895,7 @@ function AppInner() {
   };
 
   const handleDeleteVictimClick = async (victimId: string) => {
-    if (window.confirm('Excluir esta assistida permanentemente do cadastro do 5°BPM Coxim-MS?')) {
+    if (window.confirm(`Excluir esta assistida permanentemente do cadastro da unidade ${adminUnit}?`)) {
       try {
         const res = await firebaseApiFetch(`/api/victims/${victimId}`, { method: 'DELETE' });
         if (res.ok) {
@@ -978,9 +996,9 @@ function AppInner() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           status: 'Resolvido',
-          dispatcherComments: resolveComments || 'Atendimento emergencial resolvido e registrado via rádio da PM Coxim.',
+          dispatcherComments: resolveComments || `Atendimento emergencial resolvido e registrado via rádio da unidade ${adminUnit}.`,
           autoLogOccurrence: true,
-          registeredByOfficer: 'Coordenação 5ºBPM'
+          registeredByOfficer: 'Coordenação PROMUSE'
         })
       });
       if (res.ok) {
@@ -1075,7 +1093,7 @@ function AppInner() {
           <div>
             <div className="flex items-center gap-2">
               <span className="text-[10px] font-black uppercase tracking-widest text-[#FFCCD6] bg-black/40 px-2 py-0.5 rounded border border-white/10">PMMS</span>
-              <span className="text-[10px] font-black uppercase tracking-widest text-[#FFCCD6] bg-black/40 px-2 py-0.5 rounded border border-white/10">5º BPM COXIM</span>
+              <span className="text-[10px] font-black uppercase tracking-widest text-[#FFCCD6] bg-black/40 px-2 py-0.5 rounded border border-white/10">UNIDADE {adminUnit}</span>
             </div>
             <h1 className="text-xl font-black text-white tracking-tight mt-0.5">PROMUSE <span className="font-light text-rose-300">Mulher Segura</span></h1>
           </div>
@@ -1220,7 +1238,7 @@ function AppInner() {
                 Seletor de Simulação APK
               </h3>
               <p className="text-xs text-slate-400 leading-relaxed mb-4">
-                O PROMUSE é distribuído como aplicativo instalável no celular das mulheres sob medida protetiva em Coxim. Selecione a assistida abaixo para simular o telefone dela:
+                O PROMUSE é distribuído como aplicativo instalável no celular das mulheres sob medida protetiva. Selecione a assistida abaixo para simular o telefone dela:
               </p>
 
               <div>
@@ -1262,7 +1280,7 @@ function AppInner() {
               <span>Esta interface responsiva utiliza HTML5 Geolocation API e CSS3 perfeitamente aderente ao <strong className="text-slate-200">Apache Cordova</strong> e <strong className="text-slate-200">Capacitor JS</strong>. Para gerar o APK nativo:</span>
               <code className="block bg-slate-900 p-2 rounded text-[10px] font-mono text-emerald-400">
                 npm run build<br/>
-                npx cap init PROMUSE com.promuse.coxim<br/>
+                npx cap init PROMUSE com.promuse.app<br/>
                 npx cap add android<br/>
                 npx cap copy && npx cap open android
               </code>
@@ -1332,7 +1350,7 @@ function AppInner() {
               <div className="text-slate-300">
                 <span className="text-[10px] uppercase font-black opacity-80 tracking-widest block">ASSISTIDAS MONITORADAS (PROMUSE)</span>
                 <span className="text-3xl font-black block mt-1 tracking-tight text-slate-100">{db.victims.length}</span>
-                <span className="text-[10px] block text-emerald-400 font-medium">{db.victims.filter(v => v.riskLevel === 'Alto').length} de Alto Risco em Coxim</span>
+                <span className="text-[10px] block text-emerald-400 font-medium">{db.victims.filter(v => v.riskLevel === 'Alto').length} de Alto Risco</span>
               </div>
               <div className="w-12 h-12 rounded-full bg-slate-900 text-emerald-400 flex items-center justify-center shrink-0">
                 <UsersRound className="w-6 h-6" />
@@ -1366,7 +1384,7 @@ function AppInner() {
                     <div className="w-2.5 h-2.5 rounded-full bg-red-500 animate-ping"></div>
                     <h3 className="text-sm font-bold text-slate-100 uppercase tracking-wider flex items-center gap-2">
                       <Map className="w-4 h-4 text-emerald-400" />
-                      Mapeamento em Tempo Real - Coxim-MS
+                      Mapeamento em Tempo Real - {adminUnit}
                     </h3>
                   </div>
                   <span className="text-xs text-slate-400 font-mono">Total de acionamentos: {db.panicAlerts.length}</span>
@@ -1378,92 +1396,36 @@ function AppInner() {
                   {/* Visual Blueprint Grid of Coxim-MS Map */}
                   <div className="absolute inset-0 bg-[radial-gradient(#1e293b_1.2px,transparent_1.2px)] [background-size:16px_16px] opacity-40"></div>
                   
-                  {/* Dynamic Custom SVG Map with real live points */}
-                  <svg className="absolute inset-0 w-full h-full" xmlns="http://www.w3.org/2000/svg">
-                    {/* Simulated Taquari River route passing through Coxim */}
-                    <path
-                      d="M 50 0 Q 150 120 220 180 T 400 340"
-                      fill="none"
-                      stroke="#0f3460"
-                      strokeWidth="20"
-                      strokeLinecap="round"
-                      opacity="0.3"
-                    />
-                    <path
-                      d="M 50 0 Q 150 120 220 180 T 400 340"
-                      fill="none"
-                      stroke="#1a3f6c"
-                      strokeWidth="10"
-                      strokeLinecap="round"
-                      opacity="0.5"
-                    />
-                    <text x="140" y="80" fill="#2d4a77" fontSize="10" transform="rotate(35, 140, 80)" className="font-mono tracking-widest font-bold">RIO TAQUARI</text>
-
-                    {/* Major roads like BR-163 */}
-                    <path
-                      d="M 0 100 L 600 240"
-                      fill="none"
-                      stroke="#334155"
-                      strokeWidth="6"
-                      strokeDasharray="4 4"
-                      opacity="0.5"
-                    />
-                    <text x="20" y="90" fill="#475569" fontSize="9" className="font-mono">BR-163 (Sentido Pedro Gomes)</text>
-                    <text x="350" y="210" fill="#475569" fontSize="9" className="font-mono">BR-163 (Sentido Campo Grande)</text>
-
-                    {/* Neighborhood tags */}
-                    <text x="50" y="40" fill="#334155" fontSize="10" className="font-sans font-bold">VILA SÃO PAULO</text>
-                    <text x="450" y="290" fill="#334155" fontSize="10" className="font-sans font-bold">BAIRRO SANTO ANDRÉ</text>
-                    <text x="550" y="60" fill="#334155" fontSize="10" className="font-sans font-bold">SENHOR DIVINO</text>
-                    <text x="300" y="150" fill="#334155" fontSize="10" className="font-sans font-bold">CENTRO HISTÓRICO</text>
-
-                    {/* GPS Grid rings for aesthetics */}
-                    <circle cx="280" cy="170" r="130" stroke="#059669" strokeWidth="1" strokeDasharray="3 6" fill="none" opacity="0.1" />
-                    <circle cx="280" cy="170" r="80" stroke="#059669" strokeWidth="1" strokeDasharray="2 4" fill="none" opacity="0.15" />
-
-                    {/* Map Markers for panic alerts */}
-                    {db.panicAlerts.map((alert, idx) => {
-                      // Deterministic coordinate calculation mock mapping to SVG viewbox (approx relative based on seconds of time)
-                      const seed = parseInt(alert.id.replace(/\D/g, '')) || 0;
-                      const x = 100 + (seed % 400);
-                      const y = 80 + ((seed >> 2) % 200);
+                  <GoogleMap
+                    defaultZoom={13}
+                    center={getMapCenter(adminUnit)}
+                    mapId="promuse-map-id"
+                    disableDefaultUI={true}
+                    className="absolute inset-0 w-full h-full"
+                  >
+                    {db.panicAlerts.map((alert) => {
                       const isSelected = selectedMapAlert?.id === alert.id;
                       const isActive = alert.status === 'Ativo';
-
+                      
                       return (
-                        <g 
-                          key={alert.id} 
-                          className="cursor-pointer transition-all"
+                        <AdvancedMarker
+                          key={alert.id}
+                          position={{ lat: alert.location.latitude, lng: alert.location.longitude }}
                           onClick={() => setSelectedMapAlert(alert)}
                         >
-                          {isActive && (
-                            <>
-                              <circle cx={x} cy={y} r="18" fill="#ef4444" opacity="0.25" className="animate-ping" />
-                              <circle cx={x} cy={y} r="8" fill="#ef4444" opacity="0.4" />
-                            </>
-                          )}
-                          <circle 
-                            cx={x} 
-                            cy={y} 
-                            r={isSelected ? "11" : "7"} 
-                            fill={isActive ? "#ef4444" : "#10b981"} 
-                            stroke="#ffffff" 
-                            strokeWidth="2" 
+                          <Pin
+                            background={isActive ? '#ef4444' : '#10b981'}
+                            borderColor={isActive ? '#991b1b' : '#047857'}
+                            glyphColor="#fff"
+                            scale={isSelected ? 1.2 : 1}
                           />
-                          <text 
-                            x={x} 
-                            y={y - 14} 
-                            fill={isActive ? "#fca5a5" : "#a7f3d0"} 
-                            fontSize="9" 
-                            className="font-bold drop-shadow bg-slate-900/90 text-center" 
-                            textAnchor="middle"
-                          >
-                            {alert.victimName.split(' ')[0]}
-                          </text>
-                        </g>
+                          {isActive && (
+                            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-8 h-8 bg-red-500 rounded-full animate-ping opacity-50 -z-10"></div>
+                          )}
+                        </AdvancedMarker>
                       );
                     })}
-                  </svg>
+                  </GoogleMap>
 
                   {/* Empty Map State Indicator */}
                   {db.panicAlerts.length === 0 && (
@@ -1599,7 +1561,7 @@ function AppInner() {
                           {log.message}
                         </p>
                         <div className="flex justify-between items-center text-[9px]">
-                          <span className="text-slate-500 font-mono">Coxim-MS 5BPM Network</span>
+                          <span className="text-slate-500 font-mono">{adminUnit} Network</span>
                           <span className="text-[9px] bg-emerald-950 text-emerald-400 px-1 py-0.2 rounded font-extrabold uppercase">{log.type} TRANSMITIDO</span>
                         </div>
                       </div>
@@ -1908,7 +1870,7 @@ function AppInner() {
                 <Shield className="w-5 h-5 text-emerald-400" />
                 {editingVictim ? 'Editar Cadastro da Assistida' : 'Cadastrar Nova Assistida PROMUSE'}
               </h3>
-              <p className="text-xs text-slate-400 mt-0.5">Informe os dados cadastrais da vítima e os termos da Medida Protetiva de Urgência decretados pelo Fórum de Coxim-MS.</p>
+              <p className="text-xs text-slate-400 mt-0.5">Informe os dados cadastrais da vítima e os termos da Medida Protetiva de Urgência decretados pelo Fórum da Comarca.</p>
             </div>
 
             <form onSubmit={handleSaveVictim} className="space-y-4">
@@ -2000,7 +1962,7 @@ function AppInner() {
                 </div>
 
                 <div className="col-span-1 sm:col-span-2">
-                  <label className="block text-[10px] text-slate-400 font-bold uppercase mb-1">Endereço de Residência em Coxim-MS (Opcional)</label>
+                  <label className="block text-[10px] text-slate-400 font-bold uppercase mb-1">Endereço de Residência (Opcional)</label>
                   <AddressInput
                     value={newVictimForm.address}
                     onChange={(val) => setNewVictimForm({...newVictimForm, address: val})}
@@ -2330,14 +2292,14 @@ function AppInner() {
       <footer className="bg-slate-950 border-t border-slate-900 px-6 py-4 flex flex-col sm:flex-row items-center justify-between text-xs text-slate-500 gap-2 shrink-0">
         <div className="flex items-center gap-1.5">
           <Shield className="w-4 h-4 text-emerald-600" />
-          <span>PROMUSE Coxim-MS © 2026. Segurança pública integrada e inteligente.</span>
+          <span>PROMUSE © 2026. Segurança pública integrada e inteligente.</span>
         </div>
         <div className="flex items-center gap-3 font-mono text-[10px]">
           <span className="text-emerald-500 flex items-center gap-1">
             <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse inline-block"></span>
-            Canal Operativo 5º BPM
+            Canal Operativo
           </span>
-          <span>Coxim-MS, BR</span>
+          <span>{adminUnit}, BR</span>
         </div>
       </footer>
 

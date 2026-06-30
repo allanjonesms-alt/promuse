@@ -383,7 +383,7 @@ export default function AdminManagement() {
             Portal de Administração
           </h2>
           <p className="text-xs text-slate-400 leading-relaxed">
-            Área de segurança restrita para controle de administradores e aprovação de guarnições do PROMUSE de Coxim-MS.
+            Área de segurança restrita para controle de administradores e aprovação de guarnições do PROMUSE.
           </p>
         </div>
 
@@ -698,6 +698,7 @@ export default function AdminManagement() {
                 >
                   <option value="COXIM">COXIM</option>
                   <option value="RIO VERDE">RIO VERDE</option>
+                  <option value="PEDRO GOMES">PEDRO GOMES</option>
                   <option value="ALCINÓPOLIS">ALCINÓPOLIS</option>
                   <option value="SONORA">SONORA</option>
                 </select>
