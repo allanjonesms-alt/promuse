@@ -20,6 +20,10 @@ const defaultDB: AppDB = {
       policeOfficerInCharge: 'Sgt PM Anderson',
       assignedPatrol: 'VTR PROMUSE 5040',
       createdAt: '2026-01-15T10:00:00.000Z',
+      coordinates: {
+        latitude: -18.5042,
+        longitude: -54.7615
+      },
       protectiveOrder: {
         id: 'ord_1',
         orderNumber: '0001423-45.2026.8.12.0011',
@@ -40,6 +44,10 @@ const defaultDB: AppDB = {
       policeOfficerInCharge: 'Cb PM Fernanda',
       assignedPatrol: 'VTR PROMUSE 5040',
       createdAt: '2026-02-10T14:30:00.000Z',
+      coordinates: {
+        latitude: -18.5110,
+        longitude: -54.7570
+      },
       protectiveOrder: {
         id: 'ord_2',
         orderNumber: '0002891-12.2026.8.12.0011',
@@ -60,6 +68,10 @@ const defaultDB: AppDB = {
       policeOfficerInCharge: 'Sgt PM Anderson',
       assignedPatrol: 'VTR PROMUSE 5042',
       createdAt: '2026-03-01T09:15:00.000Z',
+      coordinates: {
+        latitude: -18.5085,
+        longitude: -54.7582
+      },
       protectiveOrder: {
         id: 'ord_3',
         orderNumber: '0003112-90.2026.8.12.0011',
@@ -80,6 +92,10 @@ const defaultDB: AppDB = {
       policeOfficerInCharge: 'Cb PM Fernanda',
       assignedPatrol: 'VTR PROMUSE 5040',
       createdAt: '2026-04-18T16:45:00.000Z',
+      coordinates: {
+        latitude: -18.5010,
+        longitude: -54.7650
+      },
       protectiveOrder: {
         id: 'ord_4',
         orderNumber: '0004561-18.2026.8.12.0011',
@@ -321,6 +337,7 @@ async function startServer() {
         policeOfficerInCharge: req.body.policeOfficerInCharge || 'A definir',
         assignedPatrol: req.body.assignedPatrol || 'A definir',
         createdAt: req.body.createdAt || new Date().toISOString(),
+        coordinates: req.body.coordinates,
         protectiveOrder: req.body.protectiveOrder ? {
           id: req.body.protectiveOrder.id || 'ord_' + Date.now(),
           orderNumber: req.body.protectiveOrder.orderNumber || '00000-00.2026.8.12.0011',
@@ -360,7 +377,8 @@ async function startServer() {
         riskLevel: req.body.riskLevel !== undefined ? req.body.riskLevel : existing.riskLevel,
         policeOfficerInCharge: req.body.policeOfficerInCharge !== undefined ? req.body.policeOfficerInCharge : existing.policeOfficerInCharge,
         assignedPatrol: req.body.assignedPatrol !== undefined ? req.body.assignedPatrol : existing.assignedPatrol,
-        protectiveOrder: req.body.protectiveOrder !== undefined ? req.body.protectiveOrder : existing.protectiveOrder
+        protectiveOrder: req.body.protectiveOrder !== undefined ? req.body.protectiveOrder : existing.protectiveOrder,
+        coordinates: req.body.coordinates !== undefined ? req.body.coordinates : existing.coordinates
       };
 
       db.victims[index] = updated;

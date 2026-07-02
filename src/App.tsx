@@ -28,7 +28,8 @@ import {
   Filter,
   UsersRound,
   FileCheck2,
-  Printer
+  Printer,
+  ArrowLeft
 } from 'lucide-react';
 import { useReactToPrint } from 'react-to-print';
 import { PrintableFicha } from './components/PrintableFicha';
@@ -36,21 +37,23 @@ import { AppDB, Victim, PanicAlert, Occurrence } from './types';
 import VictimPortal from './components/VictimPortal';
 import AdminManagement from './components/AdminManagement';
 import { APIProvider, Map as GoogleMap, AdvancedMarker, Pin } from '@vis.gl/react-google-maps';
-import AddressInput from './components/AddressInput';
+import AddressInput, { validateAddress } from './components/AddressInput';
 import { onAuthStateChanged, User } from 'firebase/auth';
 import { auth } from './firebase';
+import firebaseConfig from '../firebase-applet-config.json';
 
 const API_KEY =
   process.env.GOOGLE_MAPS_PLATFORM_KEY ||
   (import.meta as any).env?.VITE_GOOGLE_MAPS_PLATFORM_KEY ||
   (import.meta as any).env?.VITE_GOOGLE_MAPS ||
   (globalThis as any).GOOGLE_MAPS_PLATFORM_KEY ||
+  firebaseConfig?.apiKey ||
   '';
-const hasValidKey = Boolean(API_KEY) && API_KEY !== 'YOUR_API_KEY';
+const hasValidKey = Boolean(API_KEY) && API_KEY !== 'YOUR_API_KEY' && API_KEY !== '';
 
 export default function App() {
   if (!hasValidKey) {
-    console.warn("Google Maps API Key Requerida (VITE_GOOGLE_MAPS). O mapa pode não carregar corretamente.");
+    console.warn("Google Maps API Key Requerida (GOOGLE_MAPS_PLATFORM_KEY). O mapa pode não carregar corretamente.");
   }
 
   return (
@@ -78,6 +81,7 @@ function AppInner() {
 
   const [loading, setLoading] = useState(true);
   const [apiError, setApiError] = useState<string | null>(null);
+  const [showMapsTroubleshooter, setShowMapsTroubleshooter] = useState(!hasValidKey);
   const [activeRole, setActiveRole] = useState<'police' | 'victim' | 'admin'>('police');
   const [policeView, setPoliceView] = useState<'dashboard' | 'victims'>('dashboard');
   const [selectedSimulatedVictimId, setSelectedSimulatedVictimId] = useState<string>('');
@@ -119,7 +123,8 @@ function AppInner() {
     judgeName: 'Dr. Cláudio Müller Pareja',
     restrictions: 'Proibição de aproximação física (mínimo de 300 metros) do local de residência da vítima.',
     issueDate: '',
-    expiryDate: ''
+    expiryDate: '',
+    coordinates: null as { latitude: number; longitude: number } | null
   });
 
 
@@ -204,6 +209,7 @@ function AppInner() {
 
   // Active Map Selection State
   const [selectedMapAlert, setSelectedMapAlert] = useState<PanicAlert | null>(null);
+  const [selectedMapVictim, setSelectedMapVictim] = useState<Victim | null>(null);
   const [resolveComments, setResolveComments] = useState('');
 
   const handlePdfUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -493,6 +499,7 @@ function AppInner() {
           policeOfficerInCharge: victim.policeOfficerInCharge,
           assignedPatrol: victim.assignedPatrol,
           createdAt: victim.createdAt,
+          coordinates: victim.coordinates,
           protectiveOrder: victim.protectiveOrder ? {
             orderNumber: victim.protectiveOrder.orderNumber,
             defendantName: victim.protectiveOrder.defendantName,
@@ -739,6 +746,13 @@ function AppInner() {
   // Create or Update Victim Form Submit
   const handleSaveVictim = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    // Enforce restricted MS cities validation before submit
+    const addressCheck = validateAddress(newVictimForm.address);
+    if (!addressCheck.isValid) {
+      alert(`Restrição de Município:\n\n${addressCheck.error}\n\nPor favor, informe um endereço válido dentro de um dos municípios atendidos pelo PROMUSE.`);
+      return;
+    }
     const payload = {
       name: newVictimForm.name,
       cpf: newVictimForm.cpf,
@@ -747,6 +761,7 @@ function AppInner() {
       riskLevel: newVictimForm.riskLevel,
       policeOfficerInCharge: newVictimForm.policeOfficerInCharge,
       assignedPatrol: newVictimForm.assignedPatrol,
+      coordinates: newVictimForm.coordinates || undefined,
       protectiveOrder: {
         orderNumber: newVictimForm.orderNumber,
         defendantName: newVictimForm.defendantName,
@@ -827,6 +842,7 @@ function AppInner() {
               policeOfficerInCharge: newVictimForm.policeOfficerInCharge,
               assignedPatrol: newVictimForm.assignedPatrol,
               aggressorPhotoUrl: newVictimForm.aggressorPhotoUrl,
+              coordinates: newVictimForm.coordinates || undefined,
               protectiveOrder: {
                 id: v.protectiveOrder?.id || 'ord_fb_' + Date.now(),
                 orderNumber: newVictimForm.orderNumber,
@@ -854,6 +870,7 @@ function AppInner() {
           assignedPatrol: newVictimForm.assignedPatrol,
           aggressorPhotoUrl: newVictimForm.aggressorPhotoUrl,
           createdAt: new Date().toISOString(),
+          coordinates: newVictimForm.coordinates || undefined,
           protectiveOrder: {
             id: 'ord_fb_' + Date.now(),
             orderNumber: newVictimForm.orderNumber,
@@ -889,7 +906,8 @@ function AppInner() {
       judgeName: v.protectiveOrder?.judgeName || 'Dr. Cláudio Müller Pareja',
       restrictions: v.protectiveOrder?.restrictions || '',
       issueDate: v.protectiveOrder?.issueDate || '',
-      expiryDate: v.protectiveOrder?.expiryDate || ''
+      expiryDate: v.protectiveOrder?.expiryDate || '',
+      coordinates: v.coordinates || null
     });
     setIsVictimModalOpen(true);
   };
@@ -929,7 +947,8 @@ function AppInner() {
       judgeName: 'Dr. Cláudio Müller Pareja',
       restrictions: 'Proibição de aproximação física (mínimo de 300 metros) do local de residência da vítima.',
       issueDate: '',
-      expiryDate: ''
+      expiryDate: '',
+      coordinates: null
     });
     setPdfParseStatus(null);
   };
@@ -1086,7 +1105,16 @@ function AppInner() {
       
       {/* 🇨🇷 MILITARY HEADER */}
       <header className="bg-[#420B34] border-b border-[#5E164C]/20 px-6 py-4 flex flex-col md:flex-row items-center justify-between gap-4 shadow-lg sticky top-0 z-40">
-        <div className="flex items-center gap-4">
+        <div 
+          className="flex items-center gap-4 cursor-pointer hover:opacity-95 transition-opacity"
+          onClick={() => {
+            if (activeRole === 'police') {
+              setIsVictimModalOpen(false);
+              setPoliceView('dashboard');
+            }
+          }}
+          title="Ir para o Dashboard"
+        >
           <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-emerald-600 to-teal-500 flex items-center justify-center text-white shadow-md shadow-emerald-900/30 shrink-0 border border-emerald-400/20">
             <Shield className="w-7 h-7" />
           </div>
@@ -1104,7 +1132,11 @@ function AppInner() {
           <div className="flex bg-black/40 p-1.5 rounded-xl border border-white/10 shadow-inner">
             <button
               id="switch_police_role"
-              onClick={() => setActiveRole('police')}
+              onClick={() => {
+                setActiveRole('police');
+                setIsVictimModalOpen(false);
+                setPoliceView('dashboard');
+              }}
               className={`px-4 py-2 rounded-lg text-xs font-bold uppercase transition-all flex items-center gap-2 cursor-pointer ${
                 activeRole === 'police' 
                   ? 'bg-emerald-600/90 text-white shadow-md' 
@@ -1379,7 +1411,7 @@ function AppInner() {
               
               <div className="bg-slate-950 rounded-3xl border border-slate-850 overflow-hidden shadow-xl">
                 {/* Map header */}
-                <div className="bg-slate-900/40 px-5 py-4 border-b border-slate-850 flex items-center justify-between">
+                <div className="bg-slate-900/40 px-5 py-4 border-b border-slate-850 flex items-center justify-between flex-wrap gap-2">
                   <div className="flex items-center gap-2">
                     <div className="w-2.5 h-2.5 rounded-full bg-red-500 animate-ping"></div>
                     <h3 className="text-sm font-bold text-slate-100 uppercase tracking-wider flex items-center gap-2">
@@ -1387,8 +1419,60 @@ function AppInner() {
                       Mapeamento em Tempo Real - {adminUnit}
                     </h3>
                   </div>
-                  <span className="text-xs text-slate-400 font-mono">Total de acionamentos: {db.panicAlerts.length}</span>
+                  <div className="flex items-center gap-3">
+
+                    <span className="text-xs text-slate-400 font-mono hidden sm:inline">Total de acionamentos: {db.panicAlerts.length}</span>
+                  </div>
                 </div>
+
+                {/* Collapsible API Troubleshooting Panel */}
+                {showMapsTroubleshooter && (
+                  <div className="bg-amber-950/90 border-b border-amber-900/50 p-5 text-slate-250 z-20 relative">
+                    <div className="flex items-start gap-3">
+                      <AlertTriangle className="w-6 h-6 text-amber-400 shrink-0 mt-0.5" />
+                      <div className="space-y-2 flex-1">
+                        <div className="flex items-center justify-between">
+                          <h4 className="text-xs font-black uppercase text-amber-300 tracking-widest flex items-center gap-1.5">
+                            Guia de Resolução: Erro do Google Maps API
+                          </h4>
+                          <button 
+                            onClick={() => setShowMapsTroubleshooter(false)}
+                            className="text-amber-400 hover:text-amber-200 font-black text-[10px] uppercase bg-slate-950/60 px-2 py-0.5 rounded border border-amber-900/30"
+                          >
+                            Fechar ×
+                          </button>
+                        </div>
+                        <p className="text-xs text-amber-200/90 leading-relaxed">
+                          Se o mapa ou o campo de endereço de novas assistidas mostrar a mensagem <strong className="text-white">"Esta página não carregou o Google Maps corretamente"</strong>, isso significa que a chave de API ativa precisa ser configurada com as permissões corretas no console do Google Cloud.
+                        </p>
+                        <div className="bg-slate-950/90 p-4 rounded-xl border border-amber-900/40 text-xs space-y-2.5">
+                          <p className="font-bold text-amber-300">Siga estes 4 passos simples para ativar o serviço:</p>
+                          <ol className="list-decimal pl-4 space-y-1.5 text-slate-300">
+                            <li>
+                              Acesse o seu <a href="https://console.cloud.google.com/" target="_blank" rel="norereferrer" className="text-blue-400 underline hover:text-blue-300 font-bold inline-flex items-center gap-0.5">Google Cloud Console <ExternalLink className="w-3 h-3 inline" /></a> e selecione seu projeto.
+                            </li>
+                            <li>
+                              No menu lateral, vá em <strong className="text-white">APIs e Serviços &gt; Biblioteca</strong> e certifique-se de que ambas as APIs abaixo estejam <span className="text-emerald-400 font-bold">ATIVADAS</span>:
+                              <ul className="list-disc pl-5 mt-1 space-y-1 text-amber-200/80">
+                                <li><strong className="text-white">Maps JavaScript API</strong> (responsável por renderizar o mapa visual)</li>
+                                <li><strong className="text-white">Places API (New)</strong> ou <strong className="text-white">Places API</strong> (responsável pelo autocompletar e busca de endereços)</li>
+                              </ul>
+                            </li>
+                            <li>
+                              Acesse <strong className="text-white">APIs e Serviços &gt; Credenciais</strong> e pegue sua <strong className="text-white">Chave de API (API Key)</strong>. Verifique se a chave não possui restrições de API que impeçam o uso do Maps/Places.
+                            </li>
+                            <li>
+                              No AI Studio, clique nas <strong className="text-white">Settings</strong> (ícone de engrenagem ⚙️ no canto superior direito) &gt; aba <strong className="text-white">Secrets</strong>. Adicione ou atualize a chave <code className="bg-slate-900 text-emerald-400 px-1.5 py-0.5 rounded text-[11px] font-mono font-bold">GOOGLE_MAPS_PLATFORM_KEY</code> com sua chave copiada e aperte Enter. O aplicativo recompilará em segundos com a nova chave!
+                            </li>
+                          </ol>
+                        </div>
+                        <p className="text-[10px] text-amber-400/80 font-mono italic">
+                          * Nota de Segurança: O sistema tentou carregar a chave de API nativa do Firebase como fallback, mas chaves geradas automaticamente pelo Firebase costumam possuir restrições severas de API que bloqueiam serviços de mapas por segurança.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                )}
 
                 {/* Map Interface Body */}
                 <div className="relative h-[340px] bg-slate-900 flex items-center justify-center overflow-hidden">
@@ -1397,12 +1481,16 @@ function AppInner() {
                   <div className="absolute inset-0 bg-[radial-gradient(#1e293b_1.2px,transparent_1.2px)] [background-size:16px_16px] opacity-40"></div>
                   
                   <GoogleMap
+                    key={adminUnit}
                     defaultZoom={13}
-                    center={getMapCenter(adminUnit)}
+                    defaultCenter={getMapCenter(adminUnit)}
                     mapId="promuse-map-id"
                     disableDefaultUI={true}
+                    gestureHandling="greedy"
                     className="absolute inset-0 w-full h-full"
+                    internalUsageAttributionIds="gmp_mcp_codeassist_v1_aistudio"
                   >
+                    {/* Active/Resolved Panic Alerts */}
                     {db.panicAlerts.map((alert) => {
                       const isSelected = selectedMapAlert?.id === alert.id;
                       const isActive = alert.status === 'Ativo';
@@ -1411,7 +1499,10 @@ function AppInner() {
                         <AdvancedMarker
                           key={alert.id}
                           position={{ lat: alert.location.latitude, lng: alert.location.longitude }}
-                          onClick={() => setSelectedMapAlert(alert)}
+                          onClick={() => {
+                            setSelectedMapAlert(alert);
+                            setSelectedMapVictim(null);
+                          }}
                         >
                           <Pin
                             background={isActive ? '#ef4444' : '#10b981'}
@@ -1425,14 +1516,37 @@ function AppInner() {
                         </AdvancedMarker>
                       );
                     })}
+
+                    {/* Georeferenced Victims */}
+                    {db.victims.filter(v => v.coordinates).map((victim) => {
+                      const isSelected = selectedMapVictim?.id === victim.id;
+                      
+                      return (
+                        <AdvancedMarker
+                          key={'vic_marker_' + victim.id}
+                          position={{ lat: victim.coordinates!.latitude, lng: victim.coordinates!.longitude }}
+                          onClick={() => {
+                            setSelectedMapVictim(victim);
+                            setSelectedMapAlert(null);
+                          }}
+                        >
+                          <Pin
+                            background="#3b82f6"
+                            borderColor="#1d4ed8"
+                            glyphColor="#fff"
+                            scale={isSelected ? 1.25 : 1.05}
+                          />
+                        </AdvancedMarker>
+                      );
+                    })}
                   </GoogleMap>
 
                   {/* Empty Map State Indicator */}
-                  {db.panicAlerts.length === 0 && (
+                  {db.panicAlerts.length === 0 && db.victims.filter(v => v.coordinates).length === 0 && (
                     <div className="absolute inset-0 bg-slate-950/80 flex flex-col items-center justify-center p-6 text-center z-10">
                       <Compass className="w-12 h-12 text-slate-700 animate-spin mb-3" />
-                      <p className="text-sm font-bold text-slate-400">Nenhum botão de pânico cadastrado para exibir no mapa.</p>
-                      <p className="text-xs text-slate-600 max-w-xs mt-1">O mapa exibirá pings coloridos com ondas vermelhas assim que uma vítima disparar socorros.</p>
+                      <p className="text-sm font-bold text-slate-400">Nenhum botão de pânico ou residência georreferenciada cadastrada no mapa.</p>
+                      <p className="text-xs text-slate-600 max-w-xs mt-1">O mapa exibirá pings azuis para as residências das assistidas e vermelhos/verdes para acionamentos do botão de pânico.</p>
                     </div>
                   )}
 
@@ -1449,10 +1563,14 @@ function AppInner() {
                       <span className="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
                       <span className="text-slate-400">Ocorrência Solucionada / Patrulha Concluída</span>
                     </div>
+                    <div className="flex items-center gap-2">
+                      <span className="w-2.5 h-2.5 rounded-full bg-blue-500"></span>
+                      <span className="text-slate-400">Residência de Assistida (Georreferenciada)</span>
+                    </div>
                   </div>
                 </div>
 
-                {/* Selected Marker Control / Action Panel */}
+                {/* Selected Marker Control / Action Panel (Panic Alert) */}
                 {selectedMapAlert && (
                   <div className="p-5 bg-slate-900 border-t border-slate-850">
                     <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -1517,6 +1635,65 @@ function AppInner() {
                         <p className="text-slate-300">"{selectedMapAlert.dispatcherComments}"</p>
                       </div>
                     )}
+                  </div>
+                )}
+
+                {/* Selected Marker Control / Action Panel (Registered Victim Residence) */}
+                {selectedMapVictim && (
+                  <div className="p-5 bg-slate-900 border-t border-slate-850">
+                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                      <div className="space-y-1.5 flex-1">
+                        <div className="flex items-center gap-2">
+                          <span className={`px-2.5 py-0.5 rounded text-[10px] font-black uppercase tracking-wider ${
+                            selectedMapVictim.riskLevel === 'Alto' 
+                              ? 'bg-rose-950 text-rose-400 border border-rose-800/50' 
+                              : selectedMapVictim.riskLevel === 'Médio'
+                              ? 'bg-amber-950 text-amber-400 border border-amber-800/50'
+                              : 'bg-blue-950 text-blue-400 border border-blue-800/50'
+                          }`}>
+                            Risco: {selectedMapVictim.riskLevel}
+                          </span>
+                          <span className="text-xs text-slate-400 font-mono">ID Assistida: {selectedMapVictim.id}</span>
+                        </div>
+                        <h4 className="text-lg font-black text-blue-300 flex items-center gap-2">
+                          {selectedMapVictim.name}
+                          <span className="text-xs font-normal text-slate-400 font-mono">({selectedMapVictim.phone || 'Sem telefone'})</span>
+                        </h4>
+                        <p className="text-xs text-slate-400 flex items-center gap-1.5">
+                          <MapPin className="w-4 h-4 text-blue-500 shrink-0" />
+                          <span>Residência: <strong className="text-slate-100">{selectedMapVictim.address}</strong></span>
+                        </p>
+                        {selectedMapVictim.protectiveOrder && (
+                          <div className="bg-slate-950/60 p-2.5 rounded-lg border border-slate-850 mt-2 text-xs text-slate-300">
+                            <p className="font-bold text-slate-200">Processo MPU: <span className="font-mono text-blue-400">{selectedMapVictim.protectiveOrder.orderNumber}</span></p>
+                            <p className="mt-1 leading-relaxed"><strong className="text-slate-400">Restrições:</strong> {selectedMapVictim.protectiveOrder.restrictions}</p>
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="shrink-0 flex flex-col items-start md:items-end gap-1.5 text-xs text-slate-400">
+                        <span className="bg-slate-950 px-2 py-1 rounded font-bold text-slate-300">Responsável: {selectedMapVictim.policeOfficerInCharge || 'Não definido'}</span>
+                        <span className="bg-slate-950 px-2 py-1 rounded font-bold text-slate-300">VTR Ronda: {selectedMapVictim.assignedPatrol || 'Não definido'}</span>
+                        <div className="flex gap-1.5 mt-2 w-full">
+                          <button
+                            onClick={() => {
+                              setSelectedSimulatedVictimId(selectedMapVictim.id);
+                              setActiveRole('victim');
+                              setShowFlashNotification(`Simulador APK ativado para ${selectedMapVictim.name}.`);
+                            }}
+                            className="flex-1 text-center bg-blue-650 hover:bg-blue-600 text-white font-bold px-3 py-1.5 rounded-lg text-[10px] uppercase transition-colors"
+                          >
+                            Simular Disparo de Pânico
+                          </button>
+                          <button
+                            onClick={() => setSelectedMapVictim(null)}
+                            className="bg-slate-950 hover:bg-slate-850 text-slate-400 font-bold px-3 py-1.5 rounded-lg text-[10px] uppercase transition-colors border border-slate-800"
+                          >
+                            Fechar
+                          </button>
+                        </div>
+                      </div>
+                    </div>
                   </div>
                 )}
               </div>
@@ -1764,7 +1941,24 @@ function AppInner() {
                   {filteredVictims.map((v) => (
                     <tr key={v.id} className="hover:bg-slate-900/40 transition-colors">
                       <td className="px-5 py-4">
-                        <span className="font-extrabold text-slate-100 text-sm block">{v.name}</span>
+                        <div className="flex items-center gap-2">
+                          {v.protectiveOrder?.expiryDate && (() => {
+                            const expiry = new Date(v.protectiveOrder.expiryDate + 'T12:00:00');
+                            const today = new Date();
+                            today.setHours(0, 0, 0, 0);
+                            const diffDays = Math.ceil((expiry.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+                            if (diffDays < 16) {
+                              return (
+                                <AlertTriangle 
+                                  className="w-4 h-4 text-rose-500 shrink-0 animate-pulse" 
+                                  title={`Atenção: Medida protetiva expira em ${diffDays} dias! (Menos de 16 dias)`} 
+                                />
+                              );
+                            }
+                            return null;
+                          })()}
+                          <span className="font-extrabold text-slate-100 text-sm block">{v.name}</span>
+                        </div>
                         <div className="text-[10px] text-slate-400 flex items-center gap-2 mt-0.5 font-mono">
                           <span>CPF: {v.cpf}</span>
                           <span>•</span>
@@ -1856,32 +2050,270 @@ function AppInner() {
 
       {/* 🔮 VICTIM INCLUSION MODAL (NOW PAGE) */}
       {isVictimModalOpen && (
-        <main className="flex-1 max-w-4xl w-full mx-auto p-4 md:p-6 space-y-6">
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full p-6 md:p-8 shadow-2xl relative space-y-6">
-            <button 
-              onClick={() => setIsVictimModalOpen(false)}
-              className="absolute top-4 right-4 text-slate-400 hover:text-white"
-            >
-              <X className="w-5 h-5" />
-            </button>
-
+        <main className="flex-1 max-w-7xl w-full mx-auto p-4 md:p-6 space-y-6">
+          
+          {/* Breadcrumb Navigation & Header */}
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b border-slate-800 pb-4">
             <div>
-              <h3 className="text-lg font-black text-slate-100 uppercase tracking-wider flex items-center gap-1.5">
-                <Shield className="w-5 h-5 text-emerald-400" />
+              <div className="flex items-center gap-2 text-[10px] text-slate-500 font-mono uppercase tracking-wider">
+                <span className="hover:text-slate-350 cursor-pointer" onClick={() => { setIsVictimModalOpen(false); setPoliceView('dashboard'); }}>Início</span>
+                <span>/</span>
+                <span className="hover:text-slate-350 cursor-pointer" onClick={() => { setIsVictimModalOpen(false); setPoliceView('victims'); }}>Assistidas</span>
+                <span>/</span>
+                <span className="text-slate-400">{editingVictim ? 'Editar Cadastro' : 'Novo Cadastro'}</span>
+              </div>
+              <h2 className="text-xl font-black text-slate-100 uppercase tracking-wider flex items-center gap-2 mt-1">
+                <Shield className="w-5.5 h-5.5 text-emerald-400" />
                 {editingVictim ? 'Editar Cadastro da Assistida' : 'Cadastrar Nova Assistida PROMUSE'}
-              </h3>
-              <p className="text-xs text-slate-400 mt-0.5">Informe os dados cadastrais da vítima e os termos da Medida Protetiva de Urgência decretados pelo Fórum da Comarca.</p>
+              </h2>
+              <p className="text-xs text-slate-400 mt-1">Informe os dados cadastrais da vítima e os termos da Medida Protetiva de Urgência decretados pelo Fórum da Comarca.</p>
             </div>
 
-            <form onSubmit={handleSaveVictim} className="space-y-4">
-              
-              {!editingVictim && (
-                <div className="bg-slate-800/50 p-4 rounded-xl border border-slate-700/50 flex flex-col sm:flex-row items-center gap-4 justify-between">
-                  <div className="flex-1">
-                    <h4 className="text-sm font-bold text-slate-200">Autopreenchimento Inteligente</h4>
-                    <p className="text-xs text-slate-400 mt-1">Carregue o PDF da Medida Protetiva. Nossa IA lerá os dados e preencherá o formulário para você automaticamente.</p>
+            <button
+              onClick={() => { setIsVictimModalOpen(false); setPoliceView('dashboard'); }}
+              className="px-4 py-2 bg-slate-850 hover:bg-slate-800 border border-slate-800 hover:border-slate-700 text-slate-300 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer shadow-sm"
+            >
+              <ArrowLeft className="w-4 h-4" />
+              Voltar ao Painel
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            
+            {/* Left Column: Form (Takes 2/3 width on wide screens) */}
+            <div className="lg:col-span-2 space-y-6">
+              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 md:p-8 shadow-2xl">
+                <form onSubmit={handleSaveVictim} className="space-y-6">
+                  
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
+                    <div className="col-span-1 sm:col-span-2">
+                      <label className="block text-[10px] text-slate-400 font-bold uppercase mb-1">Nome Completo da Assistida</label>
+                      <input
+                        type="text"
+                        required
+                        value={newVictimForm.name}
+                        onChange={(e) => setNewVictimForm({...newVictimForm, name: e.target.value})}
+                        placeholder="Nome completo sem abreviações"
+                        className="w-full bg-slate-955 p-2.5 rounded-lg border border-slate-800 text-slate-250 focus:outline-none focus:border-emerald-500"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-[10px] text-slate-400 font-bold uppercase mb-1">CPF (Opcional)</label>
+                      <input
+                        type="text"
+                        value={newVictimForm.cpf}
+                        onChange={(e) => setNewVictimForm({...newVictimForm, cpf: e.target.value})}
+                        placeholder="000.000.000-00"
+                        className="w-full bg-slate-955 p-2.5 rounded-lg border border-slate-800 text-slate-250 focus:outline-none"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-[10px] text-slate-400 font-bold uppercase mb-1">Celular (WhatsApp) (Opcional)</label>
+                      <input
+                        type="text"
+                        value={newVictimForm.phone}
+                        onChange={(e) => setNewVictimForm({...newVictimForm, phone: e.target.value})}
+                        placeholder="(67) 99000-1234"
+                        className="w-full bg-slate-955 p-2.5 rounded-lg border border-slate-800 text-slate-250 focus:outline-none"
+                      />
+                    </div>
+
+                    <div className="col-span-1 sm:col-span-2">
+                      <label className="block text-[10px] text-slate-400 font-bold uppercase mb-1">Endereço de Residência (Opcional)</label>
+                      <AddressInput
+                        value={newVictimForm.address}
+                        onChange={(val) => setNewVictimForm({...newVictimForm, address: val})}
+                        onCoordinatesChange={(coords) => setNewVictimForm(prev => ({ ...prev, coordinates: coords }))}
+                        className="w-full bg-slate-955 p-2.5 rounded-lg border border-slate-800 text-slate-250 focus:outline-none focus:border-emerald-500"
+                      />
+                      {newVictimForm.coordinates && (
+                        <span className="text-[10px] text-emerald-400 font-mono mt-1 block">
+                          ✓ Coordenadas capturadas: {newVictimForm.coordinates.latitude.toFixed(5)}, {newVictimForm.coordinates.longitude.toFixed(5)}
+                        </span>
+                      )}
+                    </div>
+
+                    <div>
+                      <label className="block text-[10px] text-slate-400 font-bold uppercase mb-1">Grau de Risco Operacional</label>
+                      <select
+                        value={newVictimForm.riskLevel}
+                        onChange={(e) => setNewVictimForm({...newVictimForm, riskLevel: e.target.value as any})}
+                        className="w-full bg-slate-955 p-2.5 rounded-lg border border-slate-800 text-slate-250 font-bold"
+                      >
+                        <option value="Baixo">Baixo Risco</option>
+                        <option value="Médio">Médio Risco</option>
+                        <option value="Alto">ALTO RISCO (Patrulhamento frequente)</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-[10px] text-slate-400 font-bold uppercase mb-1">Viatura da Rota Escala</label>
+                      <input
+                        type="text"
+                        required
+                        value={newVictimForm.assignedPatrol}
+                        onChange={(e) => setNewVictimForm({...newVictimForm, assignedPatrol: e.target.value})}
+                        placeholder="VTR PROMUSE 5040"
+                        className="w-full bg-slate-955 p-2.5 rounded-lg border border-slate-800 text-slate-250 focus:outline-none"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-[10px] text-slate-400 font-bold uppercase mb-1">Policial PM Responsável</label>
+                      <input
+                        type="text"
+                        required
+                        value={newVictimForm.policeOfficerInCharge}
+                        onChange={(e) => setNewVictimForm({...newVictimForm, policeOfficerInCharge: e.target.value})}
+                        placeholder="Sgt PM Anderson"
+                        className="w-full bg-slate-955 p-2.5 rounded-lg border border-slate-800 text-slate-250 focus:outline-none"
+                      />
+                    </div>
                   </div>
-                  <div className="relative">
+
+                  {/* Legal Protection Order Info fields inside the form */}
+                  <div className="bg-slate-955 p-5 rounded-xl border border-slate-800 space-y-4 text-xs">
+                    <h4 className="text-[11px] font-black text-emerald-400 uppercase tracking-widest flex items-center gap-1.5 border-b border-slate-800 pb-2">
+                      <FileText className="w-4.5 h-4.5" /> SENTENÇA JURÍDICA E RESTRIÇÕES PROTETIVAS
+                    </h4>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-[9.5px] text-slate-400 font-bold uppercase mb-1">Número Processual</label>
+                        <input
+                          type="text"
+                          required
+                          value={newVictimForm.orderNumber}
+                          onChange={(e) => setNewVictimForm({...newVictimForm, orderNumber: e.target.value})}
+                          placeholder="0001000-00.2026.8.12.0011"
+                          className="w-full bg-slate-900 p-2.5 rounded border border-slate-800 text-slate-250 focus:outline-none"
+                        />
+                      </div>
+                      <div className="col-span-1 sm:col-span-2">
+                        <label className="block text-[9.5px] text-slate-400 font-bold uppercase mb-1">Nome do Réu / Agressor</label>
+                        <input
+                          type="text"
+                          required
+                          value={newVictimForm.defendantName}
+                          onChange={(e) => setNewVictimForm({...newVictimForm, defendantName: e.target.value})}
+                          placeholder="Nome completo do réu"
+                          className="w-full bg-slate-900 p-2.5 rounded border border-slate-800 text-slate-250 focus:outline-none"
+                        />
+                      </div>
+                      <div className="col-span-1 sm:col-span-2">
+                        <label className="block text-[9.5px] text-slate-400 font-bold uppercase mb-1">Foto do Agressor (Opcional)</label>
+                        <input
+                          type="file"
+                          accept="image/*"
+                          onChange={(e) => {
+                            const file = e.target.files?.[0];
+                            if (file) {
+                              const reader = new FileReader();
+                              reader.onloadend = () => {
+                                setNewVictimForm({...newVictimForm, aggressorPhotoUrl: reader.result as string});
+                              };
+                              reader.readAsDataURL(file);
+                            }
+                          }}
+                          className="w-full text-xs text-slate-400 file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-slate-800 file:text-emerald-400 hover:file:bg-slate-700 bg-slate-900 rounded border border-slate-800"
+                        />
+                        {newVictimForm.aggressorPhotoUrl && (
+                          <div className="mt-3 h-32 w-32 rounded bg-slate-800 overflow-hidden border border-slate-700 relative group">
+                            <img 
+                              src={newVictimForm.aggressorPhotoUrl} 
+                              alt="Preview da foto do agressor" 
+                              className="w-full h-full object-cover"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => setNewVictimForm({...newVictimForm, aggressorPhotoUrl: ''})}
+                              className="absolute inset-0 bg-red-900/80 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
+                            >
+                              <Trash2 className="w-6 h-6 text-white" />
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                      <div className="col-span-1 sm:col-span-2">
+                        <label className="block text-[9.5px] text-slate-400 font-bold uppercase mb-1">Magistrado(a) Emitente</label>
+                        <input
+                          type="text"
+                          required
+                          value={newVictimForm.judgeName}
+                          onChange={(e) => setNewVictimForm({...newVictimForm, judgeName: e.target.value})}
+                          placeholder="Dr. Cláudio Müller Pareja"
+                          className="w-full bg-slate-900 p-2.5 rounded border border-slate-800 text-slate-250 focus:outline-none"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[9.5px] text-slate-400 font-bold uppercase mb-1">Data de Expedição</label>
+                        <input
+                          type="date"
+                          required
+                          value={newVictimForm.issueDate}
+                          onChange={(e) => setNewVictimForm({...newVictimForm, issueDate: e.target.value})}
+                          className="w-full bg-slate-900 p-2.5 rounded border border-slate-800 text-slate-250 focus:outline-none"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[9.5px] text-slate-400 font-bold uppercase mb-1">Prazo de Expiração</label>
+                        <input
+                          type="date"
+                          required
+                          value={newVictimForm.expiryDate}
+                          onChange={(e) => setNewVictimForm({...newVictimForm, expiryDate: e.target.value})}
+                          className="w-full bg-slate-900 p-2.5 rounded border border-slate-800 text-slate-200"
+                        />
+                      </div>
+                      <div className="col-span-1 sm:col-span-2">
+                        <label className="block text-[9.5px] text-slate-400 font-bold uppercase mb-1">Restrições Impostas ao Réu</label>
+                        <textarea
+                          required
+                          value={newVictimForm.restrictions}
+                          onChange={(e) => setNewVictimForm({...newVictimForm, restrictions: e.target.value})}
+                          placeholder="Proibição de contato, distância física mínima, etc."
+                          rows={2}
+                          className="w-full bg-slate-900 p-2.5 rounded border border-slate-800 text-slate-250 focus:outline-none resize-none"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex justify-end gap-3 text-xs border-t border-slate-800 pt-4">
+                    <button
+                      type="button"
+                      onClick={() => { setIsVictimModalOpen(false); setPoliceView('dashboard'); }}
+                      className="px-5 py-2.5 bg-slate-850 border border-slate-800 text-slate-400 rounded-lg cursor-pointer hover:bg-slate-800"
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      type="submit"
+                      className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-lg cursor-pointer transition-colors"
+                    >
+                      {editingVictim ? 'Salvar Alterações' : 'Confirmar e Registrar Assistida'}
+                    </button>
+                  </div>
+
+                </form>
+              </div>
+            </div>
+
+            {/* Right Column: PDF Smart Upload & Assistance Rules (Takes 1/3 width) */}
+            <div className="space-y-6">
+              {!editingVictim && (
+                <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-2xl space-y-4">
+                  <div className="border-b border-slate-800 pb-3">
+                    <h3 className="text-sm font-black text-slate-100 uppercase tracking-wider flex items-center gap-1.5">
+                      <FileCheck2 className="w-5 h-5 text-emerald-400" />
+                      Leitor Inteligente
+                    </h3>
+                    <p className="text-[11px] text-slate-400 mt-1">Carregue o PDF da Medida Protetiva. Nossa IA lerá os dados e preencherá o formulário para você automaticamente.</p>
+                  </div>
+
+                  <div className="relative w-full">
                     <input 
                       type="file" 
                       accept="application/pdf" 
@@ -1889,250 +2321,79 @@ function AppInner() {
                       className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
                       disabled={isParsingPdf}
                     />
-                    <button type="button" disabled={isParsingPdf} className={`px-4 py-2 rounded-lg font-bold text-xs flex items-center gap-2 ${isParsingPdf ? 'bg-slate-700 text-slate-500' : 'bg-emerald-600 hover:bg-emerald-500 text-white'}`}>
+                    <button 
+                      type="button" 
+                      disabled={isParsingPdf} 
+                      className={`w-full px-4 py-3 rounded-xl font-black text-xs flex items-center justify-center gap-2 border ${
+                        isParsingPdf 
+                          ? 'bg-slate-800 border-slate-700 text-slate-500' 
+                          : 'bg-emerald-950/40 border-emerald-800/80 hover:bg-emerald-900/40 text-emerald-400 hover:text-emerald-300 transition-colors'
+                      }`}
+                    >
                       {isParsingPdf ? (
-                         <>
-                           <div className="w-4 h-4 border-2 border-slate-500 border-t-transparent rounded-full animate-spin" />
-                           LENDO PDF...
-                         </>
+                        <>
+                          <div className="w-4 h-4 border-2 border-slate-500 border-t-transparent rounded-full animate-spin" />
+                          LENDO PDF...
+                        </>
                       ) : (
-                         <>
-                           <FileText className="w-4 h-4" />
-                           ANEXAR PDF MPU
-                         </>
+                        <>
+                          <FileText className="w-4.5 h-4.5 text-emerald-500" />
+                          ANEXAR PDF MPU
+                        </>
                       )}
                     </button>
                   </div>
-                </div>
-              )}
 
-              {pdfParseStatus && (
-                <div className={`p-3.5 rounded-xl border flex items-start gap-2.5 text-xs ${
-                  pdfParseStatus.type === 'success' 
-                    ? 'bg-emerald-950/40 border-emerald-800/80 text-emerald-300' 
-                    : 'bg-rose-950/40 border-rose-800/80 text-rose-300'
-                }`}>
-                  {pdfParseStatus.type === 'success' ? (
-                    <CheckCircle className="w-5 h-5 shrink-0 text-emerald-400 mt-0.5" />
-                  ) : (
-                    <AlertTriangle className="w-5 h-5 shrink-0 text-rose-400 mt-0.5" />
-                  )}
-                  <div>
-                    <span className="font-bold block uppercase mb-0.5">
-                      {pdfParseStatus.type === 'success' ? 'Leitura Concluída' : 'Erro na Leitura'}
-                    </span>
-                    <p className="text-[11px] leading-relaxed">{pdfParseStatus.message}</p>
-                  </div>
-                </div>
-              )}
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
-                <div className="col-span-1 sm:col-span-2">
-                  <label className="block text-[10px] text-slate-400 font-bold uppercase mb-1">Nome Completo da Assistida</label>
-                  <input
-                    type="text"
-                    required
-                    value={newVictimForm.name}
-                    onChange={(e) => setNewVictimForm({...newVictimForm, name: e.target.value})}
-                    placeholder="Nome completo sem abreviações"
-                    className="w-full bg-slate-955 p-2.5 rounded-lg border border-slate-800 text-slate-250 focus:outline-none focus:border-emerald-500"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-[10px] text-slate-400 font-bold uppercase mb-1">CPF (Opcional)</label>
-                  <input
-                    type="text"
-                    value={newVictimForm.cpf}
-                    onChange={(e) => setNewVictimForm({...newVictimForm, cpf: e.target.value})}
-                    placeholder="000.000.000-00"
-                    className="w-full bg-slate-955 p-2.5 rounded-lg border border-slate-800 text-slate-250 focus:outline-none"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-[10px] text-slate-400 font-bold uppercase mb-1">Celular (WhatsApp) (Opcional)</label>
-                  <input
-                    type="text"
-                    value={newVictimForm.phone}
-                    onChange={(e) => setNewVictimForm({...newVictimForm, phone: e.target.value})}
-                    placeholder="(67) 99000-1234"
-                    className="w-full bg-slate-955 p-2.5 rounded-lg border border-slate-800 text-slate-250 focus:outline-none"
-                  />
-                </div>
-
-                <div className="col-span-1 sm:col-span-2">
-                  <label className="block text-[10px] text-slate-400 font-bold uppercase mb-1">Endereço de Residência (Opcional)</label>
-                  <AddressInput
-                    value={newVictimForm.address}
-                    onChange={(val) => setNewVictimForm({...newVictimForm, address: val})}
-                    className="w-full bg-slate-955 p-2.5 rounded-lg border border-slate-800 text-slate-250 focus:outline-none focus:border-emerald-500"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-[10px] text-slate-400 font-bold uppercase mb-1">Grau de Risco Operacional</label>
-                  <select
-                    value={newVictimForm.riskLevel}
-                    onChange={(e) => setNewVictimForm({...newVictimForm, riskLevel: e.target.value as any})}
-                    className="w-full bg-slate-955 p-2.5 rounded-lg border border-slate-800 text-slate-250 font-bold"
-                  >
-                    <option value="Baixo">Baixo Risco</option>
-                    <option value="Médio">Médio Risco</option>
-                    <option value="Alto">ALTO RISCO (Patrulhamento frequente)</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-[10px] text-slate-400 font-bold uppercase mb-1">Viatura da Rota Escala</label>
-                  <input
-                    type="text"
-                    required
-                    value={newVictimForm.assignedPatrol}
-                    onChange={(e) => setNewVictimForm({...newVictimForm, assignedPatrol: e.target.value})}
-                    placeholder="VTR PROMUSE 5040"
-                    className="w-full bg-slate-955 p-2.5 rounded-lg border border-slate-800 text-slate-250 focus:outline-none"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-[10px] text-slate-400 font-bold uppercase mb-1">Policial PM Responsável</label>
-                  <input
-                    type="text"
-                    required
-                    value={newVictimForm.policeOfficerInCharge}
-                    onChange={(e) => setNewVictimForm({...newVictimForm, policeOfficerInCharge: e.target.value})}
-                    placeholder="Sgt PM Anderson"
-                    className="w-full bg-slate-955 p-2.5 rounded-lg border border-slate-800 text-slate-250 focus:outline-none"
-                  />
-                </div>
-              </div>
-
-              {/* Legal Protection Order Info fields inside the form */}
-              <div className="bg-slate-955 p-4 rounded-xl border border-slate-800 space-y-3.5 text-xs">
-                <h4 className="text-[11px] font-black text-emerald-400 uppercase tracking-widest flex items-center gap-1.5 border-b border-slate-800 pb-1.5">
-                  <FileText className="w-4.5 h-4.5" /> SENTENÇA JURÍDICA E RESTRIÇÕES PROTETIVAS
-                </h4>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-[9.5px] text-slate-400 font-bold uppercase mb-0.5">Número Processual</label>
-                    <input
-                      type="text"
-                      required
-                      value={newVictimForm.orderNumber}
-                      onChange={(e) => setNewVictimForm({...newVictimForm, orderNumber: e.target.value})}
-                      placeholder="0001000-00.2026.8.12.0011"
-                      className="w-full bg-slate-900 p-2 rounded border border-slate-800 focus:outline-none"
-                    />
-                  </div>
-                  <div className="col-span-1 sm:col-span-2">
-                    <label className="block text-[9.5px] text-slate-400 font-bold uppercase mb-0.5">Nome do Réu / Agressor</label>
-                    <input
-                      type="text"
-                      required
-                      value={newVictimForm.defendantName}
-                      onChange={(e) => setNewVictimForm({...newVictimForm, defendantName: e.target.value})}
-                      placeholder="Nome completo do réu"
-                      className="w-full bg-slate-900 p-2 rounded border border-slate-800 focus:outline-none"
-                    />
-                  </div>
-                  <div className="col-span-1 sm:col-span-2">
-                    <label className="block text-[9.5px] text-slate-400 font-bold uppercase mb-0.5">Foto do Agressor (Opcional)</label>
-                    <input
-                      type="file"
-                      accept="image/*"
-                      onChange={(e) => {
-                        const file = e.target.files?.[0];
-                        if (file) {
-                          const reader = new FileReader();
-                          reader.onloadend = () => {
-                            setNewVictimForm({...newVictimForm, aggressorPhotoUrl: reader.result as string});
-                          };
-                          reader.readAsDataURL(file);
-                        }
-                      }}
-                      className="w-full text-xs text-slate-400 file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-slate-800 file:text-emerald-400 hover:file:bg-slate-700 bg-slate-900 rounded border border-slate-800"
-                    />
-                    {newVictimForm.aggressorPhotoUrl && (
-                      <div className="mt-3 h-32 w-32 rounded bg-slate-800 overflow-hidden border border-slate-700 relative group">
-                        <img 
-                          src={newVictimForm.aggressorPhotoUrl} 
-                          alt="Preview da foto do agressor" 
-                          className="w-full h-full object-cover"
-                        />
-                        <button
-                          type="button"
-                          onClick={() => setNewVictimForm({...newVictimForm, aggressorPhotoUrl: ''})}
-                          className="absolute inset-0 bg-red-900/80 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
-                        >
-                          <Trash2 className="w-6 h-6 text-white" />
-                        </button>
+                  {pdfParseStatus && (
+                    <div className={`p-4 rounded-xl border flex items-start gap-3 text-xs ${
+                      pdfParseStatus.type === 'success' 
+                        ? 'bg-emerald-950/40 border-emerald-800/80 text-emerald-300' 
+                        : 'bg-rose-950/40 border-rose-800/80 text-rose-300'
+                    }`}>
+                      {pdfParseStatus.type === 'success' ? (
+                        <CheckCircle className="w-5 h-5 shrink-0 text-emerald-400 mt-0.5" />
+                      ) : (
+                        <AlertTriangle className="w-5 h-5 shrink-0 text-rose-400 mt-0.5" />
+                      )}
+                      <div>
+                        <span className="font-bold block uppercase mb-0.5">
+                          {pdfParseStatus.type === 'success' ? 'Leitura Concluída' : 'Erro na Leitura'}
+                        </span>
+                        <p className="text-[11px] leading-relaxed">{pdfParseStatus.message}</p>
                       </div>
-                    )}
-                  </div>
-                  <div className="col-span-1 sm:col-span-2">
-                    <label className="block text-[9.5px] text-slate-400 font-bold uppercase mb-0.5">Magistrado(a) Emitente</label>
-                    <input
-                      type="text"
-                      required
-                      value={newVictimForm.judgeName}
-                      onChange={(e) => setNewVictimForm({...newVictimForm, judgeName: e.target.value})}
-                      placeholder="Dr. Cláudio Müller Pareja"
-                      className="w-full bg-slate-900 p-2 rounded border border-slate-800 focus:outline-none"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-[9.5px] text-slate-400 font-bold uppercase mb-0.5">Data de Expedição</label>
-                    <input
-                      type="date"
-                      required
-                      value={newVictimForm.issueDate}
-                      onChange={(e) => setNewVictimForm({...newVictimForm, issueDate: e.target.value})}
-                      className="w-full bg-slate-900 p-2 rounded border border-slate-800 text-slate-250 focus:outline-none"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-[9.5px] text-slate-400 font-bold uppercase mb-0.5">Prazo de Expiração</label>
-                    <input
-                      type="date"
-                      required
-                      value={newVictimForm.expiryDate}
-                      onChange={(e) => setNewVictimForm({...newVictimForm, expiryDate: e.target.value})}
-                      className="w-full bg-slate-900 p-2 rounded border border-slate-800 text-slate-200"
-                    />
-                  </div>
-                  <div className="col-span-1 sm:col-span-2">
-                    <label className="block text-[9.5px] text-slate-400 font-bold uppercase mb-0.5">Restrições Impostas ao Réu</label>
-                    <textarea
-                      required
-                      value={newVictimForm.restrictions}
-                      onChange={(e) => setNewVictimForm({...newVictimForm, restrictions: e.target.value})}
-                      placeholder="Proibição de contato, distância física mínima, etc."
-                      rows={2}
-                      className="w-full bg-slate-900 p-2 rounded border border-slate-800 text-slate-250 focus:outline-none resize-none"
-                    />
-                  </div>
+                    </div>
+                  )}
                 </div>
+              )}
+
+              {/* Operational / Support Guidelines Card */}
+              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-2xl space-y-4">
+                <div className="border-b border-slate-800 pb-3">
+                  <h3 className="text-sm font-black text-slate-100 uppercase tracking-wider flex items-center gap-1.5">
+                    <Shield className="w-5 h-5 text-amber-500" />
+                    Diretrizes PROMUSE
+                  </h3>
+                  <p className="text-[11px] text-slate-400 mt-1">Orientações operacionais para o acompanhamento de mulheres assistidas sob medida protetiva.</p>
+                </div>
+
+                <ul className="space-y-3 text-[11px] text-slate-300">
+                  <li className="flex items-start gap-2">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 mt-1.5 shrink-0"></span>
+                    <span><strong>Frequência de Visitas:</strong> Assistidas classificadas como <strong>Alto Risco</strong> devem receber patrulhamento diário.</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 mt-1.5 shrink-0"></span>
+                    <span><strong>Atualização Cadastral:</strong> Certifique-se de que os dados de geolocalização e telefone estão atualizados no sistema.</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 mt-1.5 shrink-0"></span>
+                    <span><strong>Termos da Medida:</strong> O descumprimento de qualquer termo judicial da MPU pelo agressor autoriza a prisão em flagrante.</span>
+                  </li>
+                </ul>
               </div>
 
-              <div className="flex justify-end gap-2 text-xs">
-                <button
-                  type="button"
-                  onClick={() => setIsVictimModalOpen(false)}
-                  className="px-4 py-2.5 bg-slate-955 border border-slate-800 text-slate-400 rounded-lg cursor-pointer hover:bg-slate-850"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-lg cursor-pointer transition-colors"
-                >
-                  Confirmar e Registrar Assistida
-                </button>
-              </div>
+            </div>
 
-            </form>
           </div>
         </main>
       )}

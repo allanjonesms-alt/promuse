@@ -22,6 +22,10 @@ export interface Victim {
   createdAt: string;
   aggressorPhotoUrl?: string;
   protectiveOrder?: ProtectiveOrder;
+  coordinates?: {
+    latitude: number;
+    longitude: number;
+  };
 }
 
 export interface PanicAlert {
