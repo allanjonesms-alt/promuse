@@ -3,6 +3,27 @@ import { createRoot } from 'react-dom/client';
 import App from './App.tsx';
 import './index.css';
 
+// Prevent non-fatal getRootNode errors from unmounted Google Maps / ShadowDOM event targets
+if (typeof window !== 'undefined') {
+  window.addEventListener('error', (event) => {
+    if (
+      event.message?.includes('getRootNode') ||
+      event.error?.message?.includes('getRootNode')
+    ) {
+      event.preventDefault();
+      event.stopPropagation();
+      console.warn('Ignorado erro não-fatal de event target (getRootNode):', event.message || event.error);
+    }
+  }, true);
+
+  window.addEventListener('unhandledrejection', (event) => {
+    if (event.reason?.message?.includes('getRootNode')) {
+      event.preventDefault();
+      console.warn('Ignorado erro assíncrono de event target (getRootNode):', event.reason);
+    }
+  });
+}
+
 interface ErrorBoundaryProps {
   children: ReactNode;
 }

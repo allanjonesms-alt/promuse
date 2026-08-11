@@ -135,7 +135,12 @@ export default function AddressInput({
 
     // Cleanup listeners correctly
     return () => {
-      google.maps.event.removeListener(listener);
+      if (listener) {
+        google.maps.event.removeListener(listener);
+      }
+      if (inputRef.current && google.maps?.event?.clearInstanceListeners) {
+        google.maps.event.clearInstanceListeners(inputRef.current);
+      }
       autocompleteRef.current = null;
     };
   }, [placesLib]);
@@ -212,9 +217,9 @@ export default function AddressInput({
           </div>
           <div className="h-[220px] rounded-lg overflow-hidden relative">
             <GoogleMap
-              key={`${mapCenter.lat}-${mapCenter.lng}`}
               defaultZoom={15}
               defaultCenter={mapCenter}
+              center={mapCenter}
               mapId="address-pin-map"
               disableDefaultUI={true}
               gestureHandling="greedy"
