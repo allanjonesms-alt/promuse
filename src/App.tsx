@@ -1,4 +1,5 @@
 import { firebaseApiFetch } from './lib/api';
+import { safeFormatDate, safeFormatTime, safeFormatDateTime } from './lib/utils';
 import React, { useState, useEffect } from 'react';
 import { 
   Shield, 
@@ -1598,7 +1599,7 @@ function AppInner() {
                       </div>
 
                       <div className="shrink-0 flex items-center gap-1.5">
-                        <span className="text-xs text-slate-400 font-medium">Acionado às: {new Date(selectedMapAlert.requestTime).toLocaleTimeString('pt-BR')}</span>
+                        <span className="text-xs text-slate-400 font-medium">Acionado às: {safeFormatTime(selectedMapAlert.requestTime)}</span>
                       </div>
                     </div>
 
@@ -1824,7 +1825,7 @@ function AppInner() {
                     <span className="font-extrabold text-slate-200 underline">{o.victimName}</span>
                     <div className="flex gap-2">
                       {o.cadgProtocol && <span className="font-mono text-emerald-400 font-bold">CADG: {o.cadgProtocol}</span>}
-                      <span className="text-slate-500">{new Date(o.date).toLocaleDateString('pt-BR')}</span>
+                      <span className="text-slate-500">{safeFormatDate(o.date)}</span>
                     </div>
                   </div>
                   <div>
@@ -1947,17 +1948,23 @@ function AppInner() {
                       <td className="px-5 py-4">
                         <div className="flex items-center gap-2">
                           {v.protectiveOrder?.expiryDate && (() => {
-                            const expiry = new Date(v.protectiveOrder.expiryDate + 'T12:00:00');
-                            const today = new Date();
-                            today.setHours(0, 0, 0, 0);
-                            const diffDays = Math.ceil((expiry.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
-                            if (diffDays < 16) {
-                              return (
-                                <AlertTriangle 
-                                  className="w-4 h-4 text-rose-500 shrink-0 animate-pulse" 
-                                  title={`Atenção: Medida protetiva expira em ${diffDays} dias! (Menos de 16 dias)`} 
-                                />
-                              );
+                            try {
+                              const expiryStr = v.protectiveOrder.expiryDate.split('T')[0];
+                              const expiry = new Date(expiryStr + 'T12:00:00');
+                              if (isNaN(expiry.getTime())) return null;
+                              const today = new Date();
+                              today.setHours(0, 0, 0, 0);
+                              const diffDays = Math.ceil((expiry.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+                              if (diffDays < 16) {
+                                return (
+                                  <AlertTriangle 
+                                    className="w-4 h-4 text-rose-500 shrink-0 animate-pulse" 
+                                    title={`Atenção: Medida protetiva expira em ${diffDays} dias! (Menos de 16 dias)`} 
+                                  />
+                                );
+                              }
+                            } catch (e) {
+                              return null;
                             }
                             return null;
                           })()}
@@ -1966,7 +1973,7 @@ function AppInner() {
                         <div className="text-[10px] text-slate-400 flex items-center gap-2 mt-0.5 font-mono">
                           <span>CPF: {v.cpf}</span>
                           <span>•</span>
-                          <span>Cadastrada em {new Date(v.createdAt).toLocaleDateString('pt-BR')}</span>
+                          <span>Cadastrada em {safeFormatDate(v.createdAt)}</span>
                         </div>
                       </td>
                       <td className="px-5 py-4">
@@ -1999,7 +2006,7 @@ function AppInner() {
                             {v.protectiveOrder.defendantName && (
                               <span className="text-[10px] text-amber-300 block mt-0.5 truncate" title={v.protectiveOrder.defendantName}>Réu: {v.protectiveOrder.defendantName}</span>
                             )}
-                            <span className="text-[10px] text-rose-300 block mt-0.5">Expira: {new Date(v.protectiveOrder.expiryDate + 'T12:00:00').toLocaleDateString('pt-BR')}</span>
+                            <span className="text-[10px] text-rose-300 block mt-0.5">Expira: {safeFormatDate(v.protectiveOrder.expiryDate)}</span>
                           </div>
                         ) : (
                           <span className="text-slate-500 italic text-[11px]">Nenhuma medida cadastrada</span>
@@ -2590,7 +2597,7 @@ function AppInner() {
                         </div>
                         <div className="flex justify-between">
                           <span className="text-slate-500 font-bold">EXPIRAÇÃO:</span> 
-                          <span className="text-rose-300">{v.protectiveOrder?.expiryDate ? new Date(v.protectiveOrder.expiryDate + 'T12:00:00').toLocaleDateString('pt-BR') : 'N/A'}</span>
+                          <span className="text-rose-300">{safeFormatDate(v.protectiveOrder?.expiryDate)}</span>
                         </div>
                       </div>
 
@@ -2641,7 +2648,7 @@ function AppInner() {
                       {occs.map((oc) => (
                         <div key={oc.id} className="bg-slate-950 p-3 rounded-xl border border-slate-850 space-y-1.5 text-xs">
                           <div className="flex justify-between items-center text-[10px] font-mono text-slate-450 border-b border-slate-900 pb-1">
-                            <span>{new Date(oc.date + 'T12:00:00').toLocaleDateString('pt-BR')}</span>
+                            <span>{safeFormatDate(oc.date)}</span>
                             {oc.cadgProtocol && <span className="text-emerald-400 font-bold">CADG: {oc.cadgProtocol}</span>}
                           </div>
                           <p className="text-[11px] text-slate-300 leading-relaxed font-sans">{oc.description}</p>

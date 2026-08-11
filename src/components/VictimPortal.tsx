@@ -17,6 +17,7 @@ import {
   Compass
 } from 'lucide-react';
 import { Victim, Hearing, Occurrence, PanicAlert } from '../types';
+import { safeFormatDate } from '../lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
 
 interface VictimPortalProps {
@@ -319,11 +320,11 @@ export default function VictimPortal({
               </div>
               <div className="bg-gray-50 p-2.5 rounded-xl border border-gray-100">
                 <p className="text-gray-400 text-[10px] uppercase font-bold">Data de Emissão</p>
-                <p className="text-gray-800 font-bold">{new Date(victim.protectiveOrder.issueDate + 'T12:00:00').toLocaleDateString('pt-BR')}</p>
+                <p className="text-gray-800 font-bold">{safeFormatDate(victim.protectiveOrder?.issueDate)}</p>
               </div>
               <div className="bg-gray-50 p-2.5 rounded-xl border border-gray-100">
                 <p className="text-gray-400 text-[10px] uppercase font-bold">Expiração Estimada</p>
-                <p className="text-rose-700 font-bold">{new Date(victim.protectiveOrder.expiryDate + 'T12:00:00').toLocaleDateString('pt-BR')}</p>
+                <p className="text-rose-700 font-bold">{safeFormatDate(victim.protectiveOrder?.expiryDate)}</p>
               </div>
             </div>
 
@@ -424,7 +425,7 @@ export default function VictimPortal({
                       {o.type}
                     </span>
                     <span className="text-[10px] text-gray-400">
-                      {new Date(o.date).toLocaleDateString('pt-BR')}
+                      {safeFormatDate(o.date)}
                     </span>
                   </div>
                   <p className="italic leading-relaxed">"{o.description}"</p>

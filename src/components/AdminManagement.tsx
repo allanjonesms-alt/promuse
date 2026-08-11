@@ -353,10 +353,16 @@ export default function AdminManagement() {
   // Format Dates Helper
   const formatDate = (val: any) => {
     if (!val) return 'Automático';
-    if (val.toDate) {
-      return val.toDate().toLocaleString('pt-BR');
+    try {
+      if (val.toDate) {
+        return val.toDate().toLocaleString('pt-BR');
+      }
+      const d = new Date(val);
+      if (isNaN(d.getTime())) return String(val);
+      return d.toLocaleString('pt-BR');
+    } catch {
+      return String(val);
     }
-    return new Date(val).toLocaleString('pt-BR');
   };
 
   // --- RENDERING VIEWS ---
