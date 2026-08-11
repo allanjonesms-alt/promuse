@@ -29,7 +29,8 @@ import {
   UsersRound,
   FileCheck2,
   Printer,
-  ArrowLeft
+  ArrowLeft,
+  History
 } from 'lucide-react';
 import { useReactToPrint } from 'react-to-print';
 import { PrintableFicha } from './components/PrintableFicha';
@@ -910,6 +911,7 @@ function AppInner() {
       coordinates: v.coordinates || null
     });
     setIsVictimModalOpen(true);
+    setIsOccurrenceModalOpen(false);
   };
 
   const handleDeleteVictimClick = async (victimId: string) => {
@@ -1110,6 +1112,7 @@ function AppInner() {
           onClick={() => {
             if (activeRole === 'police') {
               setIsVictimModalOpen(false);
+              setIsOccurrenceModalOpen(false);
               setPoliceView('dashboard');
             }
           }}
@@ -1135,6 +1138,7 @@ function AppInner() {
               onClick={() => {
                 setActiveRole('police');
                 setIsVictimModalOpen(false);
+                setIsOccurrenceModalOpen(false);
                 setPoliceView('dashboard');
               }}
               className={`px-4 py-2 rounded-lg text-xs font-bold uppercase transition-all flex items-center gap-2 cursor-pointer ${
@@ -1350,7 +1354,7 @@ function AppInner() {
       )}
 
       {/* 👮 ROLE 2: MILITARY COMMAND / MONITORING DASHBOARD */}
-      {activeRole === 'police' && !isVictimModalOpen && policeView === 'dashboard' && (
+      {activeRole === 'police' && !isVictimModalOpen && !isOccurrenceModalOpen && policeView === 'dashboard' && (
         <main className="flex-1 max-w-7xl w-full mx-auto p-4 md:p-6 space-y-6">
           
           {/* ⚡ STATISTICS BANNER & ACTIVE PANIC COUNTER */}
@@ -1765,7 +1769,7 @@ function AppInner() {
             {/* CADASTRAR MEDIDA PROTETIVA */}
             <button
               id="btn_new_victim"
-              onClick={() => { resetVictimForm(); setIsVictimModalOpen(true); }}
+              onClick={() => { resetVictimForm(); setIsVictimModalOpen(true); setIsOccurrenceModalOpen(false); }}
               className="bg-emerald-900/40 hover:bg-emerald-800/60 border border-emerald-800/50 p-6 rounded-3xl shadow-xl flex flex-col items-center justify-center text-center transition-all cursor-pointer group"
             >
               <div className="w-16 h-16 rounded-full bg-emerald-950/80 text-emerald-400 flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
@@ -1781,7 +1785,7 @@ function AppInner() {
 
             {/* FICHA INDIVIDUAL */}
             <button
-              onClick={() => setIsOccurrenceModalOpen(true)}
+              onClick={() => { setIsVictimModalOpen(false); setIsOccurrenceModalOpen(true); }}
               className="bg-slate-900 hover:bg-slate-800 border border-slate-800 p-6 rounded-3xl shadow-xl flex flex-col items-center justify-center text-center transition-all cursor-pointer group"
             >
               <div className="w-16 h-16 rounded-full bg-slate-950 text-slate-400 flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
@@ -1806,7 +1810,7 @@ function AppInner() {
                 </h3>
               </div>
               <button
-                onClick={() => setIsOccurrenceModalOpen(true)}
+                onClick={() => { setIsVictimModalOpen(false); setIsOccurrenceModalOpen(true); }}
                 className="text-[10px] bg-slate-900 hover:bg-slate-800 text-white font-bold tracking-wider uppercase px-2.5 py-1 rounded-md cursor-pointer border border-slate-800"
               >
                 FICHA INDIVIDUAL
@@ -1844,7 +1848,7 @@ function AppInner() {
       )}
 
       {/* 👮 ROLE 2: MILITARY COMMAND / VICTIMS LIST */}
-      {activeRole === 'police' && !isVictimModalOpen && policeView === 'victims' && (
+      {activeRole === 'police' && !isVictimModalOpen && !isOccurrenceModalOpen && policeView === 'victims' && (
         <main className="flex-1 max-w-7xl w-full mx-auto p-4 md:p-6 space-y-6">
           <div className="flex items-center justify-between mb-2">
             <h2 className="text-2xl font-black text-slate-100 uppercase tracking-widest flex items-center gap-3">
@@ -1874,14 +1878,14 @@ function AppInner() {
               <div className="flex flex-wrap items-center gap-2">
                 <button
                   id="btn_new_victim_list"
-                  onClick={() => { resetVictimForm(); setIsVictimModalOpen(true); }}
+                  onClick={() => { resetVictimForm(); setIsVictimModalOpen(true); setIsOccurrenceModalOpen(false); }}
                   className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl flex items-center gap-1.5 transition-colors cursor-pointer"
                 >
                   <PlusCircle className="w-4 h-4" />
                   Cadastrar Assistida e Medida
                 </button>
                 <button
-                  onClick={() => setIsOccurrenceModalOpen(true)}
+                  onClick={() => { setIsVictimModalOpen(false); setIsOccurrenceModalOpen(true); }}
                   className="px-4 py-2 bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-200 font-bold text-xs rounded-xl flex items-center gap-1.5 transition-colors cursor-pointer"
                 >
                   <FileText className="w-4 h-4 text-emerald-400" />
@@ -2006,6 +2010,7 @@ function AppInner() {
                           <button
                             onClick={() => {
                               setNewOccurrenceForm(prev => ({ ...prev, victimId: v.id }));
+                              setIsVictimModalOpen(false);
                               setIsOccurrenceModalOpen(true);
                             }}
                             className="px-2 py-1.5 bg-emerald-950/40 hover:bg-emerald-900/60 border border-emerald-900/35 hover:text-white text-emerald-400 font-bold tracking-wider uppercase text-[9px] rounded-lg cursor-pointer flex items-center gap-1"
@@ -2087,123 +2092,124 @@ function AppInner() {
                   
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
                     <div className="col-span-1 sm:col-span-2">
-                      <label className="block text-[10px] text-slate-400 font-bold uppercase mb-1">Nome Completo da Assistida</label>
+                      <label className="block text-[10px] text-slate-500 font-extrabold uppercase tracking-widest mb-1.5">Nome Completo da Assistida</label>
                       <input
                         type="text"
                         required
                         value={newVictimForm.name}
                         onChange={(e) => setNewVictimForm({...newVictimForm, name: e.target.value})}
                         placeholder="Nome completo sem abreviações"
-                        className="w-full bg-slate-955 p-2.5 rounded-lg border border-slate-800 text-slate-250 focus:outline-none focus:border-emerald-500"
+                        className="w-full bg-slate-950 p-2.5 rounded-lg border border-slate-800 text-slate-100 font-extrabold focus:outline-none focus:border-emerald-500"
                       />
                     </div>
 
                     <div>
-                      <label className="block text-[10px] text-slate-400 font-bold uppercase mb-1">CPF (Opcional)</label>
+                      <label className="block text-[10px] text-slate-500 font-extrabold uppercase tracking-widest mb-1.5">CPF (Opcional)</label>
                       <input
                         type="text"
                         value={newVictimForm.cpf}
                         onChange={(e) => setNewVictimForm({...newVictimForm, cpf: e.target.value})}
                         placeholder="000.000.000-00"
-                        className="w-full bg-slate-955 p-2.5 rounded-lg border border-slate-800 text-slate-250 focus:outline-none"
+                        className="w-full bg-slate-950 p-2.5 rounded-lg border border-slate-800 text-slate-100 font-extrabold focus:outline-none focus:border-emerald-500"
                       />
                     </div>
 
                     <div>
-                      <label className="block text-[10px] text-slate-400 font-bold uppercase mb-1">Celular (WhatsApp) (Opcional)</label>
+                      <label className="block text-[10px] text-slate-500 font-extrabold uppercase tracking-widest mb-1.5">Celular (WhatsApp) (Opcional)</label>
                       <input
                         type="text"
                         value={newVictimForm.phone}
                         onChange={(e) => setNewVictimForm({...newVictimForm, phone: e.target.value})}
                         placeholder="(67) 99000-1234"
-                        className="w-full bg-slate-955 p-2.5 rounded-lg border border-slate-800 text-slate-250 focus:outline-none"
+                        className="w-full bg-slate-950 p-2.5 rounded-lg border border-slate-800 text-slate-100 font-extrabold focus:outline-none focus:border-emerald-500"
                       />
                     </div>
 
                     <div className="col-span-1 sm:col-span-2">
-                      <label className="block text-[10px] text-slate-400 font-bold uppercase mb-1">Endereço de Residência (Opcional)</label>
+                      <label className="block text-[10px] text-slate-500 font-extrabold uppercase tracking-widest mb-1.5">Endereço de Residência (Opcional)</label>
                       <AddressInput
                         value={newVictimForm.address}
                         onChange={(val) => setNewVictimForm({...newVictimForm, address: val})}
+                        coordinates={newVictimForm.coordinates}
                         onCoordinatesChange={(coords) => setNewVictimForm(prev => ({ ...prev, coordinates: coords }))}
-                        className="w-full bg-slate-955 p-2.5 rounded-lg border border-slate-800 text-slate-250 focus:outline-none focus:border-emerald-500"
+                        className="w-full bg-slate-950 p-2.5 rounded-lg border border-slate-800 text-slate-100 font-extrabold focus:outline-none focus:border-emerald-500"
                       />
                       {newVictimForm.coordinates && (
-                        <span className="text-[10px] text-emerald-400 font-mono mt-1 block">
+                        <span className="text-[10px] text-emerald-400 font-mono mt-2 block">
                           ✓ Coordenadas capturadas: {newVictimForm.coordinates.latitude.toFixed(5)}, {newVictimForm.coordinates.longitude.toFixed(5)}
                         </span>
                       )}
                     </div>
 
                     <div>
-                      <label className="block text-[10px] text-slate-400 font-bold uppercase mb-1">Grau de Risco Operacional</label>
+                      <label className="block text-[10px] text-slate-500 font-extrabold uppercase tracking-widest mb-1.5">Grau de Risco Operacional</label>
                       <select
                         value={newVictimForm.riskLevel}
                         onChange={(e) => setNewVictimForm({...newVictimForm, riskLevel: e.target.value as any})}
-                        className="w-full bg-slate-955 p-2.5 rounded-lg border border-slate-800 text-slate-250 font-bold"
+                        className="w-full bg-slate-950 p-2.5 rounded-lg border border-slate-800 text-slate-100 font-extrabold"
                       >
-                        <option value="Baixo">Baixo Risco</option>
-                        <option value="Médio">Médio Risco</option>
-                        <option value="Alto">ALTO RISCO (Patrulhamento frequente)</option>
+                        <option value="Baixo" className="bg-slate-900 text-white">Baixo Risco</option>
+                        <option value="Médio" className="bg-slate-900 text-white">Médio Risco</option>
+                        <option value="Alto" className="bg-slate-900 text-white">ALTO RISCO (Patrulhamento frequente)</option>
                       </select>
                     </div>
 
                     <div>
-                      <label className="block text-[10px] text-slate-400 font-bold uppercase mb-1">Viatura da Rota Escala</label>
+                      <label className="block text-[10px] text-slate-500 font-extrabold uppercase tracking-widest mb-1.5">Viatura da Rota Escala</label>
                       <input
                         type="text"
                         required
                         value={newVictimForm.assignedPatrol}
                         onChange={(e) => setNewVictimForm({...newVictimForm, assignedPatrol: e.target.value})}
                         placeholder="VTR PROMUSE 5040"
-                        className="w-full bg-slate-955 p-2.5 rounded-lg border border-slate-800 text-slate-250 focus:outline-none"
+                        className="w-full bg-slate-950 p-2.5 rounded-lg border border-slate-800 text-slate-100 font-extrabold focus:outline-none focus:border-emerald-500"
                       />
                     </div>
 
                     <div>
-                      <label className="block text-[10px] text-slate-400 font-bold uppercase mb-1">Policial PM Responsável</label>
+                      <label className="block text-[10px] text-slate-500 font-extrabold uppercase tracking-widest mb-1.5">Policial PM Responsável</label>
                       <input
                         type="text"
                         required
                         value={newVictimForm.policeOfficerInCharge}
                         onChange={(e) => setNewVictimForm({...newVictimForm, policeOfficerInCharge: e.target.value})}
                         placeholder="Sgt PM Anderson"
-                        className="w-full bg-slate-955 p-2.5 rounded-lg border border-slate-800 text-slate-250 focus:outline-none"
+                        className="w-full bg-slate-950 p-2.5 rounded-lg border border-slate-800 text-slate-100 font-extrabold focus:outline-none focus:border-emerald-500"
                       />
                     </div>
                   </div>
 
                   {/* Legal Protection Order Info fields inside the form */}
-                  <div className="bg-slate-955 p-5 rounded-xl border border-slate-800 space-y-4 text-xs">
+                  <div className="bg-slate-950 p-5 rounded-xl border border-slate-800 space-y-4 text-xs">
                     <h4 className="text-[11px] font-black text-emerald-400 uppercase tracking-widest flex items-center gap-1.5 border-b border-slate-800 pb-2">
                       <FileText className="w-4.5 h-4.5" /> SENTENÇA JURÍDICA E RESTRIÇÕES PROTETIVAS
                     </h4>
 
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       <div>
-                        <label className="block text-[9.5px] text-slate-400 font-bold uppercase mb-1">Número Processual</label>
+                        <label className="block text-[9.5px] text-slate-500 font-extrabold uppercase tracking-widest mb-1.5">Número Processual</label>
                         <input
                           type="text"
                           required
                           value={newVictimForm.orderNumber}
                           onChange={(e) => setNewVictimForm({...newVictimForm, orderNumber: e.target.value})}
                           placeholder="0001000-00.2026.8.12.0011"
-                          className="w-full bg-slate-900 p-2.5 rounded border border-slate-800 text-slate-250 focus:outline-none"
+                          className="w-full bg-slate-900 p-2.5 rounded border border-slate-800 text-slate-100 font-extrabold focus:outline-none focus:border-emerald-500"
                         />
                       </div>
                       <div className="col-span-1 sm:col-span-2">
-                        <label className="block text-[9.5px] text-slate-400 font-bold uppercase mb-1">Nome do Réu / Agressor</label>
+                        <label className="block text-[9.5px] text-slate-500 font-extrabold uppercase tracking-widest mb-1.5">Nome do Réu / Agressor</label>
                         <input
                           type="text"
                           required
                           value={newVictimForm.defendantName}
                           onChange={(e) => setNewVictimForm({...newVictimForm, defendantName: e.target.value})}
                           placeholder="Nome completo do réu"
-                          className="w-full bg-slate-900 p-2.5 rounded border border-slate-800 text-slate-250 focus:outline-none"
+                          className="w-full bg-slate-900 p-2.5 rounded border border-slate-800 text-slate-100 font-extrabold focus:outline-none focus:border-emerald-500"
                         />
                       </div>
                       <div className="col-span-1 sm:col-span-2">
-                        <label className="block text-[9.5px] text-slate-400 font-bold uppercase mb-1">Foto do Agressor (Opcional)</label>
+                        <label className="block text-[9.5px] text-slate-500 font-extrabold uppercase tracking-widest mb-1.5">Foto do Agressor (Opcional)</label>
                         <input
                           type="file"
                           accept="image/*"
@@ -2217,7 +2223,7 @@ function AppInner() {
                               reader.readAsDataURL(file);
                             }
                           }}
-                          className="w-full text-xs text-slate-400 file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-slate-800 file:text-emerald-400 hover:file:bg-slate-700 bg-slate-900 rounded border border-slate-800"
+                          className="w-full text-xs text-slate-600 file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-slate-800 file:text-emerald-450 hover:file:bg-slate-700 bg-slate-900 rounded border border-slate-800 font-bold"
                         />
                         {newVictimForm.aggressorPhotoUrl && (
                           <div className="mt-3 h-32 w-32 rounded bg-slate-800 overflow-hidden border border-slate-700 relative group">
@@ -2237,45 +2243,45 @@ function AppInner() {
                         )}
                       </div>
                       <div className="col-span-1 sm:col-span-2">
-                        <label className="block text-[9.5px] text-slate-400 font-bold uppercase mb-1">Magistrado(a) Emitente</label>
+                        <label className="block text-[9.5px] text-slate-500 font-extrabold uppercase tracking-widest mb-1.5">Magistrado(a) Emitente</label>
                         <input
                           type="text"
                           required
                           value={newVictimForm.judgeName}
                           onChange={(e) => setNewVictimForm({...newVictimForm, judgeName: e.target.value})}
                           placeholder="Dr. Cláudio Müller Pareja"
-                          className="w-full bg-slate-900 p-2.5 rounded border border-slate-800 text-slate-250 focus:outline-none"
+                          className="w-full bg-slate-900 p-2.5 rounded border border-slate-800 text-slate-100 font-extrabold focus:outline-none focus:border-emerald-500"
                         />
                       </div>
                       <div>
-                        <label className="block text-[9.5px] text-slate-400 font-bold uppercase mb-1">Data de Expedição</label>
+                        <label className="block text-[9.5px] text-slate-500 font-extrabold uppercase tracking-widest mb-1.5">Data de Expedição</label>
                         <input
                           type="date"
                           required
                           value={newVictimForm.issueDate}
                           onChange={(e) => setNewVictimForm({...newVictimForm, issueDate: e.target.value})}
-                          className="w-full bg-slate-900 p-2.5 rounded border border-slate-800 text-slate-250 focus:outline-none"
+                          className="w-full bg-slate-900 p-2.5 rounded border border-slate-800 text-slate-100 font-extrabold focus:outline-none focus:border-emerald-500"
                         />
                       </div>
                       <div>
-                        <label className="block text-[9.5px] text-slate-400 font-bold uppercase mb-1">Prazo de Expiração</label>
+                        <label className="block text-[9.5px] text-slate-500 font-extrabold uppercase tracking-widest mb-1.5">Prazo de Expiração</label>
                         <input
                           type="date"
                           required
                           value={newVictimForm.expiryDate}
                           onChange={(e) => setNewVictimForm({...newVictimForm, expiryDate: e.target.value})}
-                          className="w-full bg-slate-900 p-2.5 rounded border border-slate-800 text-slate-200"
+                          className="w-full bg-slate-900 p-2.5 rounded border border-slate-800 text-slate-100 font-extrabold focus:outline-none focus:border-emerald-500"
                         />
                       </div>
                       <div className="col-span-1 sm:col-span-2">
-                        <label className="block text-[9.5px] text-slate-400 font-bold uppercase mb-1">Restrições Impostas ao Réu</label>
+                        <label className="block text-[9.5px] text-slate-500 font-extrabold uppercase tracking-widest mb-1.5">Restrições Impostas ao Réu</label>
                         <textarea
                           required
                           value={newVictimForm.restrictions}
                           onChange={(e) => setNewVictimForm({...newVictimForm, restrictions: e.target.value})}
                           placeholder="Proibição de contato, distância física mínima, etc."
                           rows={2}
-                          className="w-full bg-slate-900 p-2.5 rounded border border-slate-800 text-slate-250 focus:outline-none resize-none"
+                          className="w-full bg-slate-900 p-2.5 rounded border border-slate-800 text-slate-100 font-extrabold focus:outline-none focus:border-emerald-500 resize-none"
                         />
                       </div>
                     </div>
@@ -2400,146 +2406,260 @@ function AppInner() {
 
 
 
-      {/* 📃 OCCURRENCE LOG MODAL */}
+      {/* 📃 OCCURRENCE LOG PAGE (FORMERLY MODAL) */}
       {isOccurrenceModalOpen && (
-        <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50">
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-md w-full p-6 shadow-2xl relative space-y-4">
-            <button 
-              onClick={() => setIsOccurrenceModalOpen(false)}
-              className="absolute top-4 right-4 text-slate-400 hover:text-white"
-            >
-              <X className="w-5 h-5" />
-            </button>
-
+        <main className="flex-1 max-w-7xl w-full mx-auto p-4 md:p-6 space-y-6">
+          
+          {/* Breadcrumb Navigation & Header */}
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b border-slate-800 pb-4">
             <div>
-              <h3 className="text-sm font-black text-slate-100 uppercase tracking-wider flex items-center gap-1.5">
-                <FileText className="w-5 h-5 text-emerald-400" />
-                FICHA INDIVIDUAL DE ATENDIMENTO 5º BPM
-              </h3>
-              <p className="text-xs text-slate-400 mt-0.5">Preencha os dados da evolução e acompanhamento da assistida.</p>
+              <div className="flex items-center gap-2 text-[10px] text-slate-500 font-mono uppercase tracking-wider">
+                <span className="hover:text-slate-350 cursor-pointer" onClick={() => { setIsOccurrenceModalOpen(false); setPoliceView('dashboard'); }}>Início</span>
+                <span>/</span>
+                <span className="hover:text-slate-350 cursor-pointer" onClick={() => { setIsOccurrenceModalOpen(false); setPoliceView('victims'); }}>Assistadas</span>
+                <span>/</span>
+                <span className="text-slate-400">Ficha Individual de Atendimento</span>
+              </div>
+              <h2 className="text-xl font-black text-slate-100 uppercase tracking-wider flex items-center gap-2 mt-1">
+                <FileText className="w-5.5 h-5.5 text-emerald-400" />
+                FICHA INDIVIDUAL DE ATENDIMENTO
+              </h2>
+              <p className="text-xs text-slate-400 mt-1">Preencha os dados da evolução e acompanhamento da assistida para alimentar o relatório do 5º BPM.</p>
             </div>
 
-            <form onSubmit={handleSaveOccurrence} className="space-y-4 text-xs text-slate-350">
-              
-              <div>
-                <label className="block text-[10px] text-slate-400 font-bold uppercase mb-1">Assistida Relacionada</label>
-                <select
-                  required
-                  value={newOccurrenceForm.victimId}
-                  onChange={(e) => setNewOccurrenceForm({...newOccurrenceForm, victimId: e.target.value})}
-                  className="w-full bg-slate-955 p-2.5 rounded-lg border border-slate-800 text-slate-200"
-                >
-                  <option value="">-- Selecionar Assistida --</option>
-                  {db.victims.map(v => (
-                    <option key={v.id} value={v.id}>{v.name}</option>
-                  ))}
-                </select>
-              </div>
-
-              {newOccurrenceForm.victimId && (() => {
-                const v = db.victims.find(vic => vic.id === newOccurrenceForm.victimId);
-                if (!v) return null;
-                return (
-                  <div className="bg-slate-950 border border-slate-800 p-3 rounded-lg text-[10px] space-y-1.5 text-slate-300 font-mono shadow-inner">
-                    <div className="flex gap-2"><span className="text-slate-500 min-w-[100px] font-bold">PROCESSO Nº:</span> <span>{v.protectiveOrder?.orderNumber || 'N/A'}</span></div>
-                    <div className="flex gap-2"><span className="text-slate-500 min-w-[100px] font-bold">VÍTIMA:</span> <span>{v.name}</span></div>
-                    <div className="flex gap-2"><span className="text-slate-500 min-w-[100px] font-bold">ENDEREÇO:</span> <span>{v.address}</span></div>
-                    <div className="flex gap-2"><span className="text-slate-500 min-w-[100px] font-bold">TELEFONE:</span> <span>{v.phone}</span></div>
-                    <div className="flex gap-2"><span className="text-slate-500 min-w-[100px] font-bold">VALIDADE MPU:</span> <span>{v.protectiveOrder?.expiryDate ? new Date(v.protectiveOrder.expiryDate + 'T12:00:00').toLocaleDateString('pt-BR') : 'N/A'}</span></div>
-                    <div className="flex gap-2"><span className="text-slate-500 min-w-[100px] font-bold">DISTÂNCIA:</span> <span>{v.protectiveOrder?.distanceLimit || '100 metros'}</span></div>
-                    <div className="flex gap-2"><span className="text-slate-500 min-w-[100px] font-bold">AUTOR:</span> <span>{v.protectiveOrder?.defendantName || 'N/A'}</span></div>
-                  </div>
-                )
-              })()}
-
-              <div className="pt-2 border-t border-slate-800">
-                <h4 className="text-xs font-bold text-slate-200 uppercase mb-3 flex items-center gap-1.5"><Activity className="w-3.5 h-3.5 text-blue-400" /> EVOLUÇÃO</h4>
-                
-                <div className="grid grid-cols-2 gap-3 mb-3">
-                  <div>
-                    <label className="block text-[10px] text-slate-400 font-bold uppercase mb-1">Data</label>
-                    <input
-                      type="date"
-                      required
-                      value={newOccurrenceForm.date}
-                      onChange={(e) => setNewOccurrenceForm({...newOccurrenceForm, date: e.target.value})}
-                      className="w-full bg-slate-955 p-2.5 rounded-lg border border-slate-800 text-slate-200"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-[10px] text-slate-400 font-bold uppercase mb-1">Protocolo CADG</label>
-                    <input
-                      type="text"
-                      value={newOccurrenceForm.cadgProtocol}
-                      onChange={(e) => setNewOccurrenceForm({...newOccurrenceForm, cadgProtocol: e.target.value})}
-                      placeholder="Ex: 5833446"
-                      className="w-full bg-slate-955 p-2.5 rounded-lg border border-slate-800 text-slate-200"
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-[10px] text-slate-400 font-bold uppercase mb-1">Histórico da Evolução</label>
-                  <textarea
-                    required
-                    value={newOccurrenceForm.description}
-                    onChange={(e) => setNewOccurrenceForm({...newOccurrenceForm, description: e.target.value})}
-                    placeholder="Descreva o andamento, ex: Em conversa via áudios do WhatsApp, a vítima foi informada que a MPU foi renovada..."
-                    rows={4}
-                    className="w-full bg-slate-955 p-2 rounded-lg border border-slate-800 text-slate-200 resize-none font-sans"
-                  />
-                </div>
-              </div>
-
-              <div className="flex justify-between items-center pt-2">
-                <div>
-                  {newOccurrenceForm.victimId && (
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.preventDefault();
-                        if (printRef.current) {
-                          handlePrint();
-                        } else {
-                          console.error("printRef is not available");
-                        }
-                      }}
-                      className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold rounded-lg cursor-pointer flex items-center gap-1.5 transition-colors"
-                    >
-                      <Printer className="w-4 h-4 text-sky-400" />
-                      Imprimir Ficha
-                    </button>
-                  )}
-                </div>
-                <div className="flex justify-end gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setIsOccurrenceModalOpen(false)}
-                    className="px-4 py-2 bg-slate-955 border border-slate-800 text-slate-400 rounded-lg cursor-pointer hover:bg-slate-850"
-                  >
-                    Cancelar
-                  </button>
-                  <button
-                    type="submit"
-                    className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-lg cursor-pointer"
-                  >
-                    Salvar Evolução
-                  </button>
-                </div>
-              </div>
-
-              {/* Hidden Print Component */}
-              <div style={{ position: 'absolute', top: '-10000px', left: '-10000px' }}>
-                {newOccurrenceForm.victimId && (() => {
-                  const vic = db.victims.find(v => v.id === newOccurrenceForm.victimId);
-                  if (!vic) return null;
-                  const occs = db.occurrences.filter(o => o.victimId === newOccurrenceForm.victimId);
-                  return <PrintableFicha ref={printRef} victim={vic} occurrences={occs} />;
-                })()}
-              </div>
-            </form>
+            <button
+              onClick={() => { setIsOccurrenceModalOpen(false); setPoliceView('dashboard'); }}
+              className="px-4 py-2 bg-slate-850 hover:bg-slate-800 border border-slate-800 hover:border-slate-700 text-slate-300 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer shadow-sm"
+            >
+              <ArrowLeft className="w-4 h-4" />
+              Voltar ao Painel
+            </button>
           </div>
-        </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            
+            {/* Left Column: Form (Takes 2/3 width) */}
+            <div className="lg:col-span-2 space-y-6">
+              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 md:p-8 shadow-2xl">
+                <form onSubmit={handleSaveOccurrence} className="space-y-6">
+                  
+                  <div>
+                    <label className="block text-[10px] text-slate-500 font-extrabold uppercase tracking-widest mb-1.5">Assistida Relacionada</label>
+                    <select
+                      required
+                      value={newOccurrenceForm.victimId}
+                      onChange={(e) => setNewOccurrenceForm({...newOccurrenceForm, victimId: e.target.value})}
+                      className="w-full bg-slate-950 p-3 rounded-xl border border-slate-800 text-slate-100 font-extrabold focus:outline-none focus:border-emerald-500 text-xs"
+                    >
+                      <option value="" className="bg-white text-slate-100 font-extrabold">-- Selecionar Assistida --</option>
+                      {db.victims.map(v => (
+                        <option key={v.id} value={v.id} className="bg-white text-slate-100 font-extrabold">{v.name}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="pt-4 border-t border-slate-800/85">
+                    <h4 className="text-xs font-black text-slate-150 uppercase mb-4 flex items-center gap-2 tracking-wider">
+                      <Activity className="w-4.5 h-4.5 text-blue-400" /> EVOLUÇÃO E ATENDIMENTO
+                    </h4>
+                    
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
+                      <div>
+                        <label className="block text-[10px] text-slate-500 font-extrabold uppercase tracking-widest mb-1.5">Data do Atendimento</label>
+                        <input
+                          type="date"
+                          required
+                          value={newOccurrenceForm.date}
+                          onChange={(e) => setNewOccurrenceForm({...newOccurrenceForm, date: e.target.value})}
+                          className="w-full bg-slate-950 p-3 rounded-xl border border-slate-800 text-slate-100 font-extrabold focus:outline-none focus:border-emerald-500"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[10px] text-slate-500 font-extrabold uppercase tracking-widest mb-1.5">Protocolo CADG (Opcional)</label>
+                        <input
+                          type="text"
+                          value={newOccurrenceForm.cadgProtocol}
+                          onChange={(e) => setNewOccurrenceForm({...newOccurrenceForm, cadgProtocol: e.target.value})}
+                          placeholder="Ex: 5833446"
+                          className="w-full bg-slate-950 p-3 rounded-xl border border-slate-800 text-slate-100 font-extrabold focus:outline-none focus:border-emerald-500"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="mt-4 text-xs">
+                      <label className="block text-[10px] text-slate-500 font-extrabold uppercase tracking-widest mb-1.5">Histórico Detalhado da Evolução</label>
+                      <textarea
+                        required
+                        value={newOccurrenceForm.description}
+                        onChange={(e) => setNewOccurrenceForm({...newOccurrenceForm, description: e.target.value})}
+                        placeholder="Descreva o andamento do atendimento, ex: Realizada visita de retorno à residência da assistida. Ela declarou sentir-se segura com as patrulhas e informou que o réu não tem frequentado as imediações..."
+                        rows={6}
+                        className="w-full bg-slate-950 p-3.5 rounded-xl border border-slate-800 text-slate-100 font-extrabold focus:outline-none focus:border-emerald-500 resize-none font-sans text-xs leading-relaxed"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex justify-between items-center pt-4 border-t border-slate-800">
+                    <div>
+                      {newOccurrenceForm.victimId && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.preventDefault();
+                            if (printRef.current) {
+                              handlePrint();
+                            } else {
+                              console.error("printRef is not available");
+                            }
+                          }}
+                          className="px-4 py-2.5 bg-slate-800 hover:bg-slate-750 text-slate-100 font-bold rounded-lg cursor-pointer flex items-center gap-2 transition-all border border-slate-700 text-xs shadow-sm hover:text-white"
+                        >
+                          <Printer className="w-4 h-4 text-sky-400" />
+                          Gerar & Imprimir Ficha Completa
+                        </button>
+                      )}
+                    </div>
+                    <div className="flex justify-end gap-3 text-xs">
+                      <button
+                        type="button"
+                        onClick={() => { setIsOccurrenceModalOpen(false); setPoliceView('dashboard'); }}
+                        className="px-5 py-2.5 bg-slate-850 border border-slate-800 text-slate-400 rounded-lg cursor-pointer hover:bg-slate-800"
+                      >
+                        Cancelar
+                      </button>
+                      <button
+                        type="submit"
+                        className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-lg cursor-pointer transition-colors"
+                      >
+                        Salvar Evolução
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Hidden Print Component */}
+                  <div style={{ position: 'absolute', top: '-10000px', left: '-10000px' }}>
+                    {newOccurrenceForm.victimId && (() => {
+                      const vic = db.victims.find(v => v.id === newOccurrenceForm.victimId);
+                      if (!vic) return null;
+                      const occs = db.occurrences.filter(o => o.victimId === newOccurrenceForm.victimId);
+                      return <PrintableFicha ref={printRef} victim={vic} occurrences={occs} />;
+                    })()}
+                  </div>
+                </form>
+              </div>
+            </div>
+
+            {/* Right Column: Informações da Assistida Selecionada e Histórico (Takes 1/3 width) */}
+            <div className="space-y-6">
+              
+              {/* Box 1: Dados da Medida Protetiva da Assistida */}
+              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-2xl space-y-4">
+                <div className="border-b border-slate-800 pb-3">
+                  <h3 className="text-sm font-black text-slate-100 uppercase tracking-wider flex items-center gap-1.5">
+                    <Shield className="w-5 h-5 text-emerald-400" />
+                    Dados de Resguardo
+                  </h3>
+                  <p className="text-[11px] text-slate-400 mt-1">Informações processuais e de segurança da assistida ativa no formulário.</p>
+                </div>
+
+                {newOccurrenceForm.victimId ? (() => {
+                  const v = db.victims.find(vic => vic.id === newOccurrenceForm.victimId);
+                  if (!v) return null;
+                  return (
+                    <div className="space-y-3.5 text-xs">
+                      <div className="bg-slate-950/60 p-3 rounded-xl border border-slate-850 space-y-2 text-[11px] text-slate-300 font-mono">
+                        <div className="flex justify-between border-b border-slate-850 pb-1">
+                          <span className="text-slate-500 font-bold">PROCESSO:</span> 
+                          <span className="text-slate-200">{v.protectiveOrder?.orderNumber || 'N/A'}</span>
+                        </div>
+                        <div className="flex justify-between border-b border-slate-850 pb-1">
+                          <span className="text-slate-500 font-bold">VÍTIMA:</span> 
+                          <span className="text-slate-200 font-sans font-bold">{v.name}</span>
+                        </div>
+                        <div className="flex justify-between border-b border-slate-850 pb-1">
+                          <span className="text-slate-500 font-bold">TELEFONE:</span> 
+                          <span className="text-slate-200">{v.phone || 'N/A'}</span>
+                        </div>
+                        <div className="flex justify-between border-b border-slate-850 pb-1">
+                          <span className="text-slate-500 font-bold">RESTRITO:</span> 
+                          <span className="text-rose-400">{v.protectiveOrder?.distanceLimit || '100 metros'}</span>
+                        </div>
+                        <div className="flex justify-between border-b border-slate-850 pb-1">
+                          <span className="text-slate-500 font-bold">AGRESSOR:</span> 
+                          <span className="text-amber-400 font-sans">{v.protectiveOrder?.defendantName || 'N/A'}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-slate-500 font-bold">EXPIRAÇÃO:</span> 
+                          <span className="text-rose-300">{v.protectiveOrder?.expiryDate ? new Date(v.protectiveOrder.expiryDate + 'T12:00:00').toLocaleDateString('pt-BR') : 'N/A'}</span>
+                        </div>
+                      </div>
+
+                      <div className="space-y-1.5 text-[11px] text-slate-400">
+                        <div className="flex items-start gap-2">
+                          <span className="w-1.5 h-1.5 rounded-full bg-slate-500 mt-1.5 shrink-0"></span>
+                          <span><strong>Endereço:</strong> {v.address || 'Não cadastrado'}</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="w-1.5 h-1.5 rounded-full bg-slate-500 shrink-0"></span>
+                          <span><strong>Risco Operacional:</strong> <span className={`font-bold ${v.riskLevel === 'Alto' ? 'text-red-400' : v.riskLevel === 'Médio' ? 'text-amber-400' : 'text-emerald-400'}`}>{v.riskLevel}</span></span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="w-1.5 h-1.5 rounded-full bg-slate-500 shrink-0"></span>
+                          <span><strong>Guarnição Rota:</strong> {v.assignedPatrol}</span>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })() : (
+                  <div className="text-center py-6 text-slate-550 italic text-xs">
+                    Nenhuma assistida selecionada. Escolha uma assistida para visualizar as restrições e termos protetivos.
+                  </div>
+                )}
+              </div>
+
+              {/* Box 2: Histórico de Evoluções já Registradas desta assistida */}
+              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-2xl space-y-4">
+                <div className="border-b border-slate-800 pb-3">
+                  <h3 className="text-sm font-black text-slate-100 uppercase tracking-wider flex items-center gap-1.5">
+                    <History className="w-5 h-5 text-amber-500" />
+                    Histórico da Assistida
+                  </h3>
+                  <p className="text-[11px] text-slate-400 mt-1">Evoluções registradas anteriormente no sistema.</p>
+                </div>
+
+                {newOccurrenceForm.victimId ? (() => {
+                  const occs = db.occurrences.filter(o => o.victimId === newOccurrenceForm.victimId);
+                  if (occs.length === 0) {
+                    return (
+                      <div className="text-center py-6 text-slate-550 italic text-xs">
+                        Nenhuma evolução registrada anteriormente para esta assistida.
+                      </div>
+                    );
+                  }
+                  return (
+                    <div className="space-y-3 max-h-[300px] overflow-y-auto pr-1">
+                      {occs.map((oc) => (
+                        <div key={oc.id} className="bg-slate-950 p-3 rounded-xl border border-slate-850 space-y-1.5 text-xs">
+                          <div className="flex justify-between items-center text-[10px] font-mono text-slate-450 border-b border-slate-900 pb-1">
+                            <span>{new Date(oc.date + 'T12:00:00').toLocaleDateString('pt-BR')}</span>
+                            {oc.cadgProtocol && <span className="text-emerald-400 font-bold">CADG: {oc.cadgProtocol}</span>}
+                          </div>
+                          <p className="text-[11px] text-slate-300 leading-relaxed font-sans">{oc.description}</p>
+                        </div>
+                      ))}
+                    </div>
+                  );
+                })() : (
+                  <div className="text-center py-6 text-slate-550 italic text-xs">
+                    Selecione uma assistida para consultar o histórico anterior.
+                  </div>
+                )}
+              </div>
+
+            </div>
+
+          </div>
+        </main>
       )}
 
       {/* 👑 PORTAL DE GERENCIAMENTO DE ADMINISTRADORES (GOOGLE LOGIN) */}
