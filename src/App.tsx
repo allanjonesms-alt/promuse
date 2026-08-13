@@ -40,7 +40,8 @@ import { PrintableFicha } from './components/PrintableFicha';
 import { AppDB, Victim, PanicAlert, Occurrence, ProtectiveOrder } from './types';
 import VictimPortal from './components/VictimPortal';
 import AdminManagement from './components/AdminManagement';
-import { APIProvider, Map as GoogleMap, AdvancedMarker, Pin } from '@vis.gl/react-google-maps';
+import { SafeAdvancedMarker } from './components/SafeAdvancedMarker';
+import { APIProvider, Map as GoogleMap, Pin } from '@vis.gl/react-google-maps';
 import AddressInput, { validateAddress } from './components/AddressInput';
 import { onAuthStateChanged, User } from 'firebase/auth';
 import { auth } from './firebase';
@@ -1728,7 +1729,7 @@ function AppInner() {
                       const isActive = alert.status === 'Ativo';
                       
                       return (
-                        <AdvancedMarker
+                        <SafeAdvancedMarker
                           key={alert.id}
                           position={{ lat: alert.location.latitude, lng: alert.location.longitude }}
                           onClick={() => {
@@ -1745,7 +1746,7 @@ function AppInner() {
                           {isActive && (
                             <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-8 h-8 bg-red-500 rounded-full animate-ping opacity-50 -z-10"></div>
                           )}
-                        </AdvancedMarker>
+                        </SafeAdvancedMarker>
                       );
                     })}
 
@@ -1754,7 +1755,7 @@ function AppInner() {
                       const isSelected = selectedMapVictim?.id === victim.id;
                       
                       return (
-                        <AdvancedMarker
+                        <SafeAdvancedMarker
                           key={'vic_marker_' + victim.id}
                           position={{ lat: victim.coordinates!.latitude, lng: victim.coordinates!.longitude }}
                           onClick={() => {
@@ -1768,7 +1769,7 @@ function AppInner() {
                             glyphColor="#fff"
                             scale={isSelected ? 1.25 : 1.05}
                           />
-                        </AdvancedMarker>
+                        </SafeAdvancedMarker>
                       );
                     })}
                   </GoogleMap>

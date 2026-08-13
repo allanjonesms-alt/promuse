@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { useMapsLibrary, Map as GoogleMap, AdvancedMarker, Pin } from '@vis.gl/react-google-maps';
+import { useMapsLibrary, Map as GoogleMap, Pin } from '@vis.gl/react-google-maps';
+import { SafeAdvancedMarker } from './SafeAdvancedMarker';
 import { AlertTriangle, MapPin, Compass } from 'lucide-react';
 
 const ALLOWED_CITIES = [
@@ -228,7 +229,7 @@ export default function AddressInput({
               internalUsageAttributionIds="gmp_mcp_codeassist_v1_aistudio"
             >
               {coordinates ? (
-                <AdvancedMarker
+                <SafeAdvancedMarker
                   position={{ lat: coordinates.latitude, lng: coordinates.longitude }}
                   draggable={true}
                   onDragEnd={handleMarkerDragEnd}
@@ -238,9 +239,9 @@ export default function AddressInput({
                     borderColor="#b91c1c"
                     glyphColor="#fff"
                   />
-                </AdvancedMarker>
+                </SafeAdvancedMarker>
               ) : (
-                <AdvancedMarker
+                <SafeAdvancedMarker
                   position={mapCenter}
                   draggable={true}
                   onDragEnd={handleMarkerDragEnd}
@@ -250,7 +251,7 @@ export default function AddressInput({
                     borderColor="#b91c1c"
                     glyphColor="#fff"
                   />
-                </AdvancedMarker>
+                </SafeAdvancedMarker>
               )}
             </GoogleMap>
           </div>
