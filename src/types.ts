@@ -8,6 +8,8 @@ export interface ProtectiveOrder {
   judgeName: string;
   restrictions: string;
   status: 'Ativa' | 'Expirada' | 'Revogada';
+  revocationNoticeNumber?: string;
+  revocationDate?: string;
 }
 
 export interface Victim {

@@ -1,6 +1,6 @@
 import { firebaseApiFetch } from './lib/api';
 import { safeFormatDate, safeFormatTime, safeFormatDateTime } from './lib/utils';
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { 
   Shield, 
   Users, 
@@ -25,17 +25,19 @@ import {
   AlertOctagon,
   Clock,
   ExternalLink,
-  Map,
+  Map as MapIcon,
   Filter,
   UsersRound,
   FileCheck2,
   Printer,
   ArrowLeft,
-  History
+  History,
+  FileX,
+  ShieldAlert
 } from 'lucide-react';
 import { useReactToPrint } from 'react-to-print';
 import { PrintableFicha } from './components/PrintableFicha';
-import { AppDB, Victim, PanicAlert, Occurrence } from './types';
+import { AppDB, Victim, PanicAlert, Occurrence, ProtectiveOrder } from './types';
 import VictimPortal from './components/VictimPortal';
 import AdminManagement from './components/AdminManagement';
 import { APIProvider, Map as GoogleMap, AdvancedMarker, Pin } from '@vis.gl/react-google-maps';
@@ -102,12 +104,133 @@ function AppInner() {
 
   // Search & Filters Inside Admin Dashboard
   const [victimSearch, setVictimSearch] = useState('');
-  const [riskFilter, setRiskFilter] = useState<'Todos' | 'Baixo' | 'Médio' | 'Alto'>('Todos');
+  const [issueMonthFilter, setIssueMonthFilter] = useState<string>('Todos');
   const [alertStatusFilter, setAlertStatusFilter] = useState<'Todos' | 'Ativo' | 'Resolvido'>('Todos');
   const [occurrenceTypeFilter, setOccurrenceTypeFilter] = useState<string>('Todos');
 
+  // Parse year/month for protective order issue dates
+  const parseIssueYearMonth = (issueDateStr?: string): { key: string; label: string } | null => {
+    if (!issueDateStr) return null;
+    let year = '';
+    let month = '';
+
+    if (issueDateStr.includes('-')) {
+      const parts = issueDateStr.split('T')[0].split('-');
+      if (parts.length >= 2) {
+        year = parts[0];
+        month = parts[1].padStart(2, '0');
+      }
+    } else if (issueDateStr.includes('/')) {
+      const parts = issueDateStr.split('/');
+      if (parts.length === 3) {
+        if (parts[2].length === 4) {
+          year = parts[2];
+          month = parts[1].padStart(2, '0');
+        } else if (parts[0].length === 4) {
+          year = parts[0];
+          month = parts[1].padStart(2, '0');
+        }
+      }
+    } else {
+      const d = new Date(issueDateStr);
+      if (!isNaN(d.getTime())) {
+        year = String(d.getFullYear());
+        month = String(d.getMonth() + 1).padStart(2, '0');
+      }
+    }
+
+    const MONTH_NAMES: Record<string, string> = {
+      '01': 'Janeiro',
+      '02': 'Fevereiro',
+      '03': 'Março',
+      '04': 'Abril',
+      '05': 'Maio',
+      '06': 'Junho',
+      '07': 'Julho',
+      '08': 'Agosto',
+      '09': 'Setembro',
+      '10': 'Outubro',
+      '11': 'Novembro',
+      '12': 'Dezembro',
+    };
+
+    if (!year || !month || !MONTH_NAMES[month]) return null;
+
+    const key = `${year}-${month}`;
+    const monthName = MONTH_NAMES[month];
+    const label = `${month}/${year} - ${monthName}`;
+
+    return { key, label };
+  };
+
+  // Compute available months with expedida protective measures in descending order
+  const availableIssueMonths = useMemo(() => {
+    const monthMap: Record<string, string> = {};
+    db.victims.forEach(v => {
+      const parsed = parseIssueYearMonth(v.protectiveOrder?.issueDate);
+      if (parsed) {
+        monthMap[parsed.key] = parsed.label;
+      }
+    });
+
+    return Object.entries(monthMap)
+      .sort((a, b) => b[0].localeCompare(a[0]))
+      .map(([key, label]) => ({ key, label }));
+  }, [db.victims]);
+
+  // Administrators list state for Police Officer Auto-complete
+  const [adminAccounts, setAdminAccounts] = useState<{ email: string; name: string; rankRole?: string; status?: string }[]>([]);
+
+  useEffect(() => {
+    let unsubscribe: (() => void) | undefined;
+    const loadAdmins = async () => {
+      try {
+        const { collection, onSnapshot } = await import('firebase/firestore');
+        const { db: firestoreDb } = await import('./firebase');
+        const unsubs = onSnapshot(collection(firestoreDb, 'admins'), (snapshot) => {
+          const list: { email: string; name: string; rankRole?: string; status?: string }[] = [];
+          snapshot.forEach((doc) => {
+            const data = doc.data();
+            if (data.status !== 'Inativo') {
+              list.push({
+                email: doc.id || data.email,
+                name: data.name || data.email,
+                rankRole: data.rankRole || '',
+                status: data.status || 'Ativo'
+              });
+            }
+          });
+          setAdminAccounts(list);
+        }, (err) => {
+          console.warn("Firestore admins listener note:", err);
+        });
+        unsubscribe = unsubs;
+      } catch (err) {
+        console.warn("Error setting up admins listener in App.tsx:", err);
+      }
+    };
+    loadAdmins();
+    return () => {
+      if (unsubscribe) unsubscribe();
+    };
+  }, []);
+
+  const adminOfficerNames = useMemo(() => {
+    const names = adminAccounts.map(a => {
+      if (a.rankRole && !a.name.toLowerCase().includes(a.rankRole.toLowerCase())) {
+        return `${a.rankRole} ${a.name}`.trim();
+      }
+      return a.name.trim();
+    }).filter(Boolean);
+
+    const defaults = ['Sgt PM Anderson', 'Cb PM Fernanda', 'Ten PM Rodrigo', 'SubTen PM Marcio', 'Allan Jones'];
+    const combined = Array.from(new Set([...names, ...defaults]));
+    return combined;
+  }, [adminAccounts]);
+
   // Modal / Form States
   const [isVictimModalOpen, setIsVictimModalOpen] = useState(false);
+  const [isOfficerSuggestionsOpen, setIsOfficerSuggestionsOpen] = useState(false);
   const [editingVictim, setEditingVictim] = useState<Victim | null>(null);
   const [isParsingPdf, setIsParsingPdf] = useState(false);
   const [pdfParseStatus, setPdfParseStatus] = useState<{ type: 'success' | 'error', message: string } | null>(null);
@@ -128,6 +251,96 @@ function AppInner() {
     expiryDate: '',
     coordinates: null as { latitude: number; longitude: number } | null
   });
+
+  // Revogação Modal State
+  const [isRevocationModalOpen, setIsRevocationModalOpen] = useState(false);
+  const [revocationVictim, setRevocationVictim] = useState<Victim | null>(null);
+  const [revocationForm, setRevocationForm] = useState({
+    noticeNumber: '',
+    date: new Date().toISOString().split('T')[0],
+    reason: ''
+  });
+  const [isSubmittingRevocation, setIsSubmittingRevocation] = useState(false);
+
+  const handleOpenRevocationModal = (victim: Victim) => {
+    setRevocationVictim(victim);
+    setRevocationForm({
+      noticeNumber: victim.protectiveOrder?.revocationNoticeNumber || '',
+      date: victim.protectiveOrder?.revocationDate || new Date().toISOString().split('T')[0],
+      reason: ''
+    });
+    setIsRevocationModalOpen(true);
+  };
+
+  const handleConfirmRevocation = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!revocationVictim || !revocationVictim.protectiveOrder) return;
+    if (!revocationForm.noticeNumber.trim() || !revocationForm.date) {
+      alert("Por favor, preencha o número do ofício e a data da revogação.");
+      return;
+    }
+
+    setIsSubmittingRevocation(true);
+
+    const updatedProtectiveOrder: ProtectiveOrder = {
+      ...revocationVictim.protectiveOrder,
+      status: 'Revogada',
+      revocationNoticeNumber: revocationForm.noticeNumber.trim(),
+      revocationDate: revocationForm.date
+    };
+
+    const updatedVictim: Victim = {
+      ...revocationVictim,
+      protectiveOrder: updatedProtectiveOrder
+    };
+
+    const formattedRevDate = safeFormatDate(revocationForm.date);
+    const newOcc: Occurrence = {
+      id: 'occ_rev_' + Date.now(),
+      victimId: revocationVictim.id,
+      victimName: revocationVictim.name,
+      date: revocationForm.date || new Date().toISOString().split('T')[0],
+      type: 'Outro',
+      cadgProtocol: revocationForm.noticeNumber.trim(),
+      description: `[MEDIDA PROTETIVA REVOGADA] Medida Protetiva nº ${revocationVictim.protectiveOrder.orderNumber || ''} foi REVOGADA conforme Ofício nº ${revocationForm.noticeNumber.trim()} emitido em ${formattedRevDate}.${revocationForm.reason ? ' Observações: ' + revocationForm.reason : ''}`,
+      registeredByOfficer: 'Policial Coordenador PROMUSE',
+      actionsTaken: `Anotação de revogação de MPU no sistema PROMUSE e alteração do status para Inativa conforme Ofício nº ${revocationForm.noticeNumber.trim()}.`
+    };
+
+    try {
+      await firebaseApiFetch(`/api/victims/${revocationVictim.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updatedVictim)
+      });
+
+      await firebaseApiFetch('/api/occurrences', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newOcc)
+      });
+
+      setDb(prev => ({
+        ...prev,
+        victims: prev.victims.map(v => v.id === revocationVictim.id ? updatedVictim : v),
+        occurrences: [newOcc, ...prev.occurrences]
+      }));
+
+      setIsRevocationModalOpen(false);
+      setRevocationVictim(null);
+    } catch (err) {
+      console.warn("Erro ao salvar revogação na API, atualizando localmente:", err);
+      setDb(prev => ({
+        ...prev,
+        victims: prev.victims.map(v => v.id === revocationVictim.id ? updatedVictim : v),
+        occurrences: [newOcc, ...prev.occurrences]
+      }));
+      setIsRevocationModalOpen(false);
+      setRevocationVictim(null);
+    } finally {
+      setIsSubmittingRevocation(false);
+    }
+  };
 
 
 
@@ -771,7 +984,9 @@ function AppInner() {
         restrictions: newVictimForm.restrictions,
         issueDate: newVictimForm.issueDate || new Date().toISOString().split('T')[0],
         expiryDate: newVictimForm.expiryDate || new Date(Date.now() + 180*24*60*60*1000).toISOString().split('T')[0],
-        status: 'Ativa' as const
+        status: editingVictim?.protectiveOrder?.status || 'Ativa',
+        revocationNoticeNumber: editingVictim?.protectiveOrder?.revocationNoticeNumber,
+        revocationDate: editingVictim?.protectiveOrder?.revocationDate
       }
     };
 
@@ -853,7 +1068,9 @@ function AppInner() {
                 restrictions: newVictimForm.restrictions,
                 issueDate: newVictimForm.issueDate || new Date().toISOString().split('T')[0],
                 expiryDate: newVictimForm.expiryDate || new Date(Date.now() + 180*24*60*60*1000).toISOString().split('T')[0],
-                status: 'Ativa' as const
+                status: v.protectiveOrder?.status || 'Ativa',
+                revocationNoticeNumber: v.protectiveOrder?.revocationNoticeNumber,
+                revocationDate: v.protectiveOrder?.revocationDate
               }
             };
           }
@@ -1072,8 +1289,14 @@ function AppInner() {
     const matchesSearch = v.name.toLowerCase().includes(victimSearch.toLowerCase()) || 
                           v.cpf.includes(victimSearch) || 
                           (v.protectiveOrder?.orderNumber && v.protectiveOrder.orderNumber.includes(victimSearch));
-    const matchesRisk = riskFilter === 'Todos' || v.riskLevel === riskFilter;
-    return matchesSearch && matchesRisk;
+    
+    let matchesMonth = true;
+    if (issueMonthFilter !== 'Todos') {
+      const parsed = parseIssueYearMonth(v.protectiveOrder?.issueDate);
+      matchesMonth = parsed ? (parsed.key === issueMonthFilter || parsed.key.endsWith('-' + issueMonthFilter)) : false;
+    }
+
+    return matchesSearch && matchesMonth;
   });
 
   // Filtered Alerts
@@ -1420,7 +1643,7 @@ function AppInner() {
                   <div className="flex items-center gap-2">
                     <div className="w-2.5 h-2.5 rounded-full bg-red-500 animate-ping"></div>
                     <h3 className="text-sm font-bold text-slate-100 uppercase tracking-wider flex items-center gap-2">
-                      <Map className="w-4 h-4 text-emerald-400" />
+                      <MapIcon className="w-4 h-4 text-emerald-400" />
                       Mapeamento em Tempo Real - {adminUnit}
                     </h3>
                   </div>
@@ -1909,23 +2132,18 @@ function AppInner() {
               </div>
 
               <div className="flex items-center gap-2">
-                <Filter className="w-4 h-4 text-slate-400 shrink-0" />
-                <span className="text-slate-400 text-xs">Filtrar por Gravidade:</span>
-                <div className="flex bg-slate-950 p-1 rounded-lg border border-slate-800">
-                  {['Todos', 'Baixo', 'Médio', 'Alto'].map(risk => (
-                    <button
-                      key={risk}
-                      onClick={() => setRiskFilter(risk as any)}
-                      className={`px-3 py-1 rounded text-[11px] font-bold uppercase transition-all whitespace-nowrap cursor-pointer ${
-                        riskFilter === risk 
-                          ? 'bg-slate-800 text-white text-[11.5px]' 
-                          : 'text-slate-400 hover:text-slate-200'
-                      }`}
-                    >
-                      {risk}
-                    </button>
+                <Calendar className="w-4 h-4 text-slate-400 shrink-0" />
+                <span className="text-slate-400 text-xs font-bold">Mês de Expedição:</span>
+                <select
+                  value={issueMonthFilter}
+                  onChange={(e) => setIssueMonthFilter(e.target.value)}
+                  className="bg-slate-950 text-slate-200 text-xs py-1.5 px-3 rounded-lg border border-slate-800 focus:outline-none focus:border-emerald-500 font-bold cursor-pointer"
+                >
+                  <option value="Todos">Todos os Meses ({availableIssueMonths.length})</option>
+                  {availableIssueMonths.map((m) => (
+                    <option key={m.key} value={m.key}>{m.label}</option>
                   ))}
-                </div>
+                </select>
               </div>
             </div>
 
@@ -1937,7 +2155,6 @@ function AppInner() {
                     <th className="px-5 py-3">Vítima Assistida</th>
                     <th className="px-5 py-3">Dados de Contato</th>
                     <th className="px-5 py-3">Risco Operacional</th>
-                    <th className="px-5 py-3">Diligência / Patrulha Designada</th>
                     <th className="px-5 py-3">Sentença Protetiva</th>
                     <th className="px-5 py-3 text-right">Ações de Gestão</th>
                   </tr>
@@ -1991,12 +2208,6 @@ function AppInner() {
                           {v.riskLevel} Gravidade
                         </span>
                       </td>
-                      <td className="px-5 py-4">
-                        <div className="text-slate-200">
-                          <span className="font-bold text-slate-300 block">{v.assignedPatrol}</span>
-                          <span className="text-[10px] text-slate-400 block">Responsável: {v.policeOfficerInCharge}</span>
-                        </div>
-                      </td>
                       <td className="px-5 py-4 max-w-[220px]">
                         {v.protectiveOrder ? (
                           <div>
@@ -2005,6 +2216,11 @@ function AppInner() {
                             </span>
                             {v.protectiveOrder.defendantName && (
                               <span className="text-[10px] text-amber-300 block mt-0.5 truncate" title={v.protectiveOrder.defendantName}>Réu: {v.protectiveOrder.defendantName}</span>
+                            )}
+                            {v.protectiveOrder.issueDate && (
+                              <span className="text-[10px] text-sky-300 block mt-0.5">
+                                Expedição: {safeFormatDate(v.protectiveOrder.issueDate)}
+                              </span>
                             )}
                             <span className="text-[10px] text-rose-300 block mt-0.5">Expira: {safeFormatDate(v.protectiveOrder.expiryDate)}</span>
                           </div>
@@ -2047,7 +2263,7 @@ function AppInner() {
 
                   {filteredVictims.length === 0 && (
                     <tr>
-                      <td colSpan={6} className="px-5 py-10 text-center text-slate-550 italic text-sm">
+                      <td colSpan={5} className="px-5 py-10 text-center text-slate-550 italic text-sm">
                         Nenhuma assistida encontrada com os termos ou filtros selecionados.
                       </td>
                     </tr>
@@ -2174,15 +2390,60 @@ function AppInner() {
                     </div>
 
                     <div>
-                      <label className="block text-[10px] text-slate-500 font-extrabold uppercase tracking-widest mb-1.5">Policial PM Responsável</label>
-                      <input
-                        type="text"
-                        required
-                        value={newVictimForm.policeOfficerInCharge}
-                        onChange={(e) => setNewVictimForm({...newVictimForm, policeOfficerInCharge: e.target.value})}
-                        placeholder="Sgt PM Anderson"
-                        className="w-full bg-slate-950 p-2.5 rounded-lg border border-slate-800 text-slate-100 font-extrabold focus:outline-none focus:border-emerald-500"
-                      />
+                      <label className="block text-[10px] text-slate-500 font-extrabold uppercase tracking-widest mb-1.5">
+                        Policial PM Responsável (Administrador)
+                      </label>
+                      <div className="relative">
+                        <input
+                          type="text"
+                          required
+                          value={newVictimForm.policeOfficerInCharge}
+                          onChange={(e) => {
+                            setNewVictimForm({ ...newVictimForm, policeOfficerInCharge: e.target.value });
+                            setIsOfficerSuggestionsOpen(true);
+                          }}
+                          onFocus={() => setIsOfficerSuggestionsOpen(true)}
+                          onBlur={() => setTimeout(() => setIsOfficerSuggestionsOpen(false), 200)}
+                          placeholder="Digite o nome para buscar administrador..."
+                          className="w-full bg-slate-950 p-2.5 rounded-lg border border-slate-800 text-slate-100 font-extrabold focus:outline-none focus:border-emerald-500 text-xs"
+                        />
+                        {isOfficerSuggestionsOpen && (
+                          <div className="absolute left-0 right-0 top-full mt-1 bg-slate-900 border border-slate-700 rounded-xl shadow-2xl z-50 max-h-52 overflow-y-auto divide-y divide-slate-800/80">
+                            {(() => {
+                              const searchVal = (newVictimForm.policeOfficerInCharge || '').toLowerCase().trim();
+                              const filtered = adminOfficerNames.filter(name =>
+                                name.toLowerCase().includes(searchVal)
+                              );
+                              if (filtered.length === 0) {
+                                return (
+                                  <div className="px-3 py-2.5 text-xs text-slate-400 italic">
+                                    Nenhum administrador encontrado com "{newVictimForm.policeOfficerInCharge}"
+                                  </div>
+                                );
+                              }
+                              return filtered.map((officer) => (
+                                <button
+                                  key={officer}
+                                  type="button"
+                                  onMouseDown={() => {
+                                    setNewVictimForm({ ...newVictimForm, policeOfficerInCharge: officer });
+                                    setIsOfficerSuggestionsOpen(false);
+                                  }}
+                                  className="w-full px-3 py-2 text-left text-xs text-slate-200 hover:bg-slate-800 hover:text-white cursor-pointer transition-colors flex items-center justify-between font-bold"
+                                >
+                                  <span className="flex items-center gap-2">
+                                    <Shield className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                                    {officer}
+                                  </span>
+                                  <span className="text-[9px] uppercase tracking-wider font-mono text-emerald-400 bg-emerald-950/80 border border-emerald-800/60 px-1.5 py-0.5 rounded">
+                                    Admin
+                                  </span>
+                                </button>
+                              ));
+                            })()}
+                          </div>
+                        )}
+                      </div>
                     </div>
                   </div>
 
@@ -2451,7 +2712,27 @@ function AppInner() {
                 <form onSubmit={handleSaveOccurrence} className="space-y-6">
                   
                   <div>
-                    <label className="block text-[10px] text-slate-500 font-extrabold uppercase tracking-widest mb-1.5">Assistida Relacionada</label>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <label className="block text-[10px] text-slate-500 font-extrabold uppercase tracking-widest">Assistida Relacionada</label>
+                      {newOccurrenceForm.victimId && (() => {
+                        const vic = db.victims.find(v => v.id === newOccurrenceForm.victimId);
+                        if (!vic) return null;
+                        return (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.preventDefault();
+                              handleOpenRevocationModal(vic);
+                            }}
+                            className="px-3 py-1 bg-rose-950/90 hover:bg-rose-900 border border-rose-800/80 text-rose-200 font-black text-xs rounded-xl cursor-pointer flex items-center gap-1.5 transition-all shadow-sm uppercase tracking-wider"
+                            title="Registrar Revogação da Medida Protetiva"
+                          >
+                            <FileX className="w-3.5 h-3.5 text-rose-400" />
+                            REVOGAÇÃO
+                          </button>
+                        );
+                      })()}
+                    </div>
                     <select
                       required
                       value={newOccurrenceForm.victimId}
@@ -2507,23 +2788,43 @@ function AppInner() {
                   </div>
 
                   <div className="flex justify-between items-center pt-4 border-t border-slate-800">
-                    <div>
+                    <div className="flex items-center gap-2">
                       {newOccurrenceForm.victimId && (
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.preventDefault();
-                            if (printRef.current) {
-                              handlePrint();
-                            } else {
-                              console.error("printRef is not available");
-                            }
-                          }}
-                          className="px-4 py-2.5 bg-slate-800 hover:bg-slate-750 text-slate-100 font-bold rounded-lg cursor-pointer flex items-center gap-2 transition-all border border-slate-700 text-xs shadow-sm hover:text-white"
-                        >
-                          <Printer className="w-4 h-4 text-sky-400" />
-                          Gerar & Imprimir Ficha Completa
-                        </button>
+                        <>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.preventDefault();
+                              if (printRef.current) {
+                                handlePrint();
+                              } else {
+                                console.error("printRef is not available");
+                              }
+                            }}
+                            className="px-4 py-2.5 bg-slate-800 hover:bg-slate-750 text-slate-100 font-bold rounded-lg cursor-pointer flex items-center gap-2 transition-all border border-slate-700 text-xs shadow-sm hover:text-white"
+                          >
+                            <Printer className="w-4 h-4 text-sky-400" />
+                            Gerar & Imprimir Ficha Completa
+                          </button>
+                          {(() => {
+                            const vic = db.victims.find(v => v.id === newOccurrenceForm.victimId);
+                            if (!vic) return null;
+                            return (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  handleOpenRevocationModal(vic);
+                                }}
+                                className="px-4 py-2.5 bg-rose-950/80 hover:bg-rose-900 text-rose-200 font-extrabold text-xs rounded-lg cursor-pointer flex items-center gap-2 transition-all border border-rose-800/80 shadow-sm"
+                                title="Registrar Revogação da Medida Protetiva"
+                              >
+                                <FileX className="w-4 h-4 text-rose-400" />
+                                REVOGAÇÃO
+                              </button>
+                            );
+                          })()}
+                        </>
                       )}
                     </div>
                     <div className="flex justify-end gap-3 text-xs">
@@ -2595,10 +2896,28 @@ function AppInner() {
                           <span className="text-slate-500 font-bold">AGRESSOR:</span> 
                           <span className="text-amber-400 font-sans">{v.protectiveOrder?.defendantName || 'N/A'}</span>
                         </div>
-                        <div className="flex justify-between">
+                        <div className="flex justify-between border-b border-slate-850 pb-1">
                           <span className="text-slate-500 font-bold">EXPIRAÇÃO:</span> 
                           <span className="text-rose-300">{safeFormatDate(v.protectiveOrder?.expiryDate)}</span>
                         </div>
+                        <div className="flex justify-between items-center pt-1">
+                          <span className="text-slate-500 font-bold">SITUAÇÃO MPU:</span> 
+                          {v.protectiveOrder?.status === 'Revogada' ? (
+                            <span className="text-rose-400 font-sans font-black bg-rose-950/80 border border-rose-800/80 px-2 py-0.5 rounded uppercase text-[10px]">
+                              REVOGADA (INATIVA)
+                            </span>
+                          ) : (
+                            <span className="text-emerald-400 font-sans font-black bg-emerald-950/80 border border-emerald-800/80 px-2 py-0.5 rounded uppercase text-[10px]">
+                              ATIVA
+                            </span>
+                          )}
+                        </div>
+                        {v.protectiveOrder?.status === 'Revogada' && (
+                          <div className="mt-2 p-2 bg-rose-950/40 border border-rose-900/50 rounded-lg text-rose-300 font-sans text-[10px] space-y-0.5">
+                            <p><strong>Ofício Revogação:</strong> {v.protectiveOrder.revocationNoticeNumber || 'N/A'}</p>
+                            <p><strong>Data Revogação:</strong> {safeFormatDate(v.protectiveOrder.revocationDate)}</p>
+                          </div>
+                        )}
                       </div>
 
                       <div className="space-y-1.5 text-[11px] text-slate-400">
@@ -2674,6 +2993,123 @@ function AppInner() {
         <main className="flex-1 max-w-7xl w-full mx-auto p-4 md:p-6 space-y-6">
           <AdminManagement />
         </main>
+      )}
+
+      {/* 🔴 MODAL DE REVOGAÇÃO DE MEDIDA PROTETIVA */}
+      {isRevocationModalOpen && revocationVictim && (
+        <div className="fixed inset-0 bg-slate-950/85 backdrop-blur-md z-50 flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 md:p-8 max-w-lg w-full shadow-2xl space-y-6 relative animate-in fade-in zoom-in duration-150">
+            
+            {/* Header */}
+            <div className="flex justify-between items-start border-b border-slate-800 pb-4">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-rose-950 border border-rose-800 text-rose-400 flex items-center justify-center shrink-0">
+                  <FileX className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-black text-slate-100 uppercase tracking-wider">
+                    Revogação de Medida Protetiva
+                  </h3>
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    Assistida: <strong className="text-slate-200">{revocationVictim.name}</strong>
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => { setIsRevocationModalOpen(false); setRevocationVictim(null); }}
+                className="p-2 bg-slate-800 hover:bg-slate-700 text-slate-400 rounded-xl cursor-pointer transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleConfirmRevocation} className="space-y-4 text-xs">
+              
+              {/* Process Info */}
+              <div className="bg-slate-950 p-3.5 rounded-2xl border border-slate-800 text-slate-300 space-y-1.5 font-mono">
+                <div className="flex justify-between text-[11px]">
+                  <span className="text-slate-500 font-bold">PROCESSO MPU:</span>
+                  <span className="text-slate-100 font-bold">{revocationVictim.protectiveOrder?.orderNumber || 'N/A'}</span>
+                </div>
+                <div className="flex justify-between text-[11px]">
+                  <span className="text-slate-500 font-bold">REQUERIDO (RÉU):</span>
+                  <span className="text-amber-400 font-bold">{revocationVictim.protectiveOrder?.defendantName || 'N/A'}</span>
+                </div>
+                <div className="flex justify-between text-[11px]">
+                  <span className="text-slate-500 font-bold">SITUAÇÃO ATUAL:</span>
+                  <span className={`font-bold ${revocationVictim.protectiveOrder?.status === 'Revogada' ? 'text-rose-400' : 'text-emerald-400'}`}>
+                    {revocationVictim.protectiveOrder?.status || 'Ativa'}
+                  </span>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-[10px] text-slate-400 font-extrabold uppercase tracking-widest mb-1.5">
+                  Número do Ofício de Revogação *
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={revocationForm.noticeNumber}
+                  onChange={(e) => setRevocationForm({ ...revocationForm, noticeNumber: e.target.value })}
+                  placeholder="Ex: Ofício nº 452/2026 - 2ª Vara Criminal"
+                  className="w-full bg-slate-950 p-3 rounded-xl border border-slate-800 text-slate-100 font-extrabold focus:outline-none focus:border-rose-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[10px] text-slate-400 font-extrabold uppercase tracking-widest mb-1.5">
+                  Data da Revogação *
+                </label>
+                <input
+                  type="date"
+                  required
+                  value={revocationForm.date}
+                  onChange={(e) => setRevocationForm({ ...revocationForm, date: e.target.value })}
+                  className="w-full bg-slate-950 p-3 rounded-xl border border-slate-800 text-slate-100 font-extrabold focus:outline-none focus:border-rose-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[10px] text-slate-400 font-extrabold uppercase tracking-widest mb-1.5">
+                  Motivo / Observações do Juízo (Opcional)
+                </label>
+                <textarea
+                  value={revocationForm.reason}
+                  onChange={(e) => setRevocationForm({ ...revocationForm, reason: e.target.value })}
+                  placeholder="Descreva o despacho ou determinação de revogação do magistrado..."
+                  rows={3}
+                  className="w-full bg-slate-950 p-3 rounded-xl border border-slate-800 text-slate-100 font-extrabold focus:outline-none focus:border-rose-500 resize-none"
+                />
+              </div>
+
+              <div className="bg-rose-950/40 p-3 rounded-xl border border-rose-900/50 text-[11px] text-rose-300 leading-relaxed font-sans">
+                ⚠️ Ao concluir estes dados, a Medida Protetiva será arquivada no histórico como <strong>REVOGADA (INATIVA)</strong>.
+              </div>
+
+              <div className="flex justify-end gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => { setIsRevocationModalOpen(false); setRevocationVictim(null); }}
+                  className="px-4 py-2.5 bg-slate-850 hover:bg-slate-800 border border-slate-800 text-slate-400 rounded-xl cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSubmittingRevocation}
+                  className="px-6 py-2.5 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-xl cursor-pointer transition-colors flex items-center gap-2"
+                >
+                  {isSubmittingRevocation ? <RefreshCw className="w-4 h-4 animate-spin" /> : <FileX className="w-4 h-4" />}
+                  Concluir Revogação
+                </button>
+              </div>
+
+            </form>
+
+          </div>
+        </div>
       )}
 
       {/* 👮 BOTTOM FOOTER SYSTEM INFO */}

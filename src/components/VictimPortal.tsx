@@ -13,6 +13,7 @@ import {
   Clock,
   ArrowRight,
   ShieldCheck,
+  ShieldAlert,
   Map,
   Compass
 } from 'lucide-react';
@@ -304,10 +305,33 @@ export default function VictimPortal({
         {/* 📃 MEDIDAS PROTETIVAS DE URGÊNCIA */}
         {victim.protectiveOrder && (
           <div className="bg-white rounded-2xl p-4.5 shadow-sm border border-gray-100 space-y-3">
-            <h4 className="text-sm font-bold text-gray-800 uppercase tracking-wide flex items-center gap-1.5">
-              <ShieldCheck className="w-4.5 h-4.5 text-emerald-500" />
-              Medida Protetiva Digital
-            </h4>
+            <div className="flex items-center justify-between">
+              <h4 className="text-sm font-bold text-gray-800 uppercase tracking-wide flex items-center gap-1.5">
+                <ShieldCheck className="w-4.5 h-4.5 text-emerald-500" />
+                Medida Protetiva Digital
+              </h4>
+              {victim.protectiveOrder.status === 'Revogada' ? (
+                <span className="px-2.5 py-1 bg-rose-100 text-rose-800 border border-rose-200 rounded-full text-[10px] font-black uppercase tracking-wider">
+                  Revogada (Inativa)
+                </span>
+              ) : (
+                <span className="px-2.5 py-1 bg-emerald-100 text-emerald-800 border border-emerald-200 rounded-full text-[10px] font-black uppercase tracking-wider">
+                  Ativa
+                </span>
+              )}
+            </div>
+
+            {victim.protectiveOrder.status === 'Revogada' && (
+              <div className="bg-rose-50 border border-rose-200 rounded-xl p-3 text-xs text-rose-900 space-y-1">
+                <p className="font-extrabold uppercase text-[10px] text-rose-800 tracking-wider flex items-center gap-1">
+                  <ShieldAlert className="w-3.5 h-3.5 text-rose-600" /> Medida Protetiva Revogada Judicialmente
+                </p>
+                <p className="text-[11px] leading-relaxed">
+                  Ofício de Revogação: <strong>{victim.protectiveOrder.revocationNoticeNumber || 'Não informado'}</strong>
+                  {victim.protectiveOrder.revocationDate && ` | Data: ${safeFormatDate(victim.protectiveOrder.revocationDate)}`}
+                </p>
+              </div>
+            )}
             
             <div className="grid grid-cols-2 gap-2 text-xs">
               <div className="bg-gray-50 p-2.5 rounded-xl border border-gray-100">

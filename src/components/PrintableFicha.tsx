@@ -66,7 +66,14 @@ export const PrintableFicha = forwardRef<HTMLDivElement, PrintableFichaProps>(
                 <td className="border border-black p-2 uppercase font-bold" colSpan={2}>TELEFONE: <span className="font-normal">{victim.phone}</span></td>
               </tr>
               <tr>
-                <td className="border border-black p-2 uppercase font-bold" colSpan={2}>VALIDADE DA MPU: <span className="font-normal">{formatDate(victim.protectiveOrder?.expiryDate)}</span></td>
+                <td className="border border-black p-2 uppercase font-bold" colSpan={2}>
+                  VALIDADE DA MPU: <span className="font-normal">{formatDate(victim.protectiveOrder?.expiryDate)}</span>
+                  {victim.protectiveOrder?.status === 'Revogada' && (
+                    <span className="ml-4 font-bold text-red-700 underline">
+                      [SITUAÇÃO: REVOGADA (INATIVA) - OFÍCIO Nº {victim.protectiveOrder.revocationNoticeNumber || 'N/A'} - EM {formatDate(victim.protectiveOrder.revocationDate)}]
+                    </span>
+                  )}
+                </td>
               </tr>
               <tr>
                 <td className="border border-black p-2 uppercase font-bold" colSpan={2}>DISTÂNCIA: <span className="font-normal">{victim.protectiveOrder?.restrictions || ''}</span></td>

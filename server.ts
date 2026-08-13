@@ -346,7 +346,9 @@ async function startServer() {
           expiryDate: req.body.protectiveOrder.expiryDate || new Date(Date.now() + 180 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
           judgeName: req.body.protectiveOrder.judgeName || 'Juiz Titular Coxim',
           restrictions: req.body.protectiveOrder.restrictions || 'Medidas protetivas padrão impostas pelo juízo.',
-          status: 'Ativa'
+          status: req.body.protectiveOrder.status || 'Ativa',
+          revocationNoticeNumber: req.body.protectiveOrder.revocationNoticeNumber,
+          revocationDate: req.body.protectiveOrder.revocationDate
         } : undefined
       };
 
