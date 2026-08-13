@@ -1618,11 +1618,15 @@ function AppInner() {
             </div>
 
             {/* General Patrol Actions Tracked */}
-            <div className="p-4 rounded-2xl bg-slate-950/80 border border-slate-800/80 flex items-center justify-between shadow-md">
+            <div 
+              onClick={() => { setIsVictimModalOpen(false); setIsOccurrenceModalOpen(true); }}
+              className="p-4 rounded-2xl bg-slate-950/80 border border-slate-800/80 flex items-center justify-between shadow-md cursor-pointer hover:bg-slate-900 transition-colors"
+              title="Clique para acessar Ficha e Registrar Evoluções"
+            >
               <div className="text-slate-300">
                 <span className="text-[10px] uppercase font-black opacity-80 tracking-widest block">OCORRÊNCIAS & RONDAS LOGADAS</span>
                 <span className="text-3xl font-black block mt-1 tracking-tight text-slate-100">{db.occurrences.length}</span>
-                <span className="text-[10px] block text-blue-400 font-medium">Patrulhamento ostensivo diário</span>
+                <span className="text-[10px] block text-blue-400 font-medium">{db.occurrences.length} registro{db.occurrences.length !== 1 ? 's' : ''} de evolução gravado{db.occurrences.length !== 1 ? 's' : ''}</span>
               </div>
               <div className="w-12 h-12 rounded-full bg-slate-900 text-blue-400 flex items-center justify-center shrink-0">
                 <FileCheck2 className="w-6 h-6" />
