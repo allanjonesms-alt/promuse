@@ -87,6 +87,15 @@ function AppInner() {
   const [loading, setLoading] = useState(true);
   const [apiError, setApiError] = useState<string | null>(null);
   const [showMapsTroubleshooter, setShowMapsTroubleshooter] = useState(!hasValidKey);
+  const [mapAuthError, setMapAuthError] = useState(false);
+
+  useEffect(() => {
+    (window as any).gm_authFailure = () => {
+      console.warn("Google Maps Auth Failure detected (RefererNotAllowedMapError / InvalidKey)");
+      setMapAuthError(true);
+      setShowMapsTroubleshooter(true);
+    };
+  }, []);
   const [activeRole, setActiveRole] = useState<'police' | 'victim' | 'admin'>('police');
   const [policeView, setPoliceView] = useState<'dashboard' | 'victims'>('dashboard');
   const [selectedSimulatedVictimId, setSelectedSimulatedVictimId] = useState<string>('');
@@ -106,8 +115,31 @@ function AppInner() {
   // Search & Filters Inside Admin Dashboard
   const [victimSearch, setVictimSearch] = useState('');
   const [issueMonthFilter, setIssueMonthFilter] = useState<string>('Todos');
+  const [expiryStatusFilter, setExpiryStatusFilter] = useState<'Todos' | '30d' | 'Expiradas'>('Todos');
   const [alertStatusFilter, setAlertStatusFilter] = useState<'Todos' | 'Ativo' | 'Resolvido'>('Todos');
   const [occurrenceTypeFilter, setOccurrenceTypeFilter] = useState<string>('Todos');
+
+  // Compute protective order expiration status
+  const getExpiryInfo = (expiryDateStr?: string) => {
+    if (!expiryDateStr) return null;
+    try {
+      const expiryStr = expiryDateStr.split('T')[0];
+      const expiry = new Date(expiryStr + 'T12:00:00');
+      if (isNaN(expiry.getTime())) return null;
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const diffDays = Math.ceil((expiry.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+      
+      return {
+        diffDays,
+        isExpired: diffDays < 0,
+        isExpiring30Days: diffDays >= 0 && diffDays <= 30,
+        isExpiring15Days: diffDays >= 0 && diffDays <= 15,
+      };
+    } catch {
+      return null;
+    }
+  };
 
   // Parse year/month for protective order issue dates
   const parseIssueYearMonth = (issueDateStr?: string): { key: string; label: string } | null => {
@@ -440,7 +472,7 @@ function AppInner() {
         const base64String = (reader.result as string).split(',')[1];
         
         try {
-          const res = await fetch('/api/parse-pdf', {
+          const res = await firebaseApiFetch('/api/parse-pdf', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ pdfBase64: base64String })
@@ -1297,7 +1329,17 @@ function AppInner() {
       matchesMonth = parsed ? (parsed.key === issueMonthFilter || parsed.key.endsWith('-' + issueMonthFilter)) : false;
     }
 
-    return matchesSearch && matchesMonth;
+    let matchesExpiry = true;
+    if (expiryStatusFilter !== 'Todos') {
+      const info = getExpiryInfo(v.protectiveOrder?.expiryDate);
+      if (expiryStatusFilter === '30d') {
+        matchesExpiry = Boolean(info && (info.isExpiring30Days || info.isExpired));
+      } else if (expiryStatusFilter === 'Expiradas') {
+        matchesExpiry = Boolean(info && info.isExpired);
+      }
+    }
+
+    return matchesSearch && matchesMonth && matchesExpiry;
   });
 
   // Filtered Alerts
@@ -1679,23 +1721,28 @@ function AppInner() {
                           Se o mapa ou o campo de endereço de novas assistidas mostrar a mensagem <strong className="text-white">"Esta página não carregou o Google Maps corretamente"</strong>, isso significa que a chave de API ativa precisa ser configurada com as permissões corretas no console do Google Cloud.
                         </p>
                         <div className="bg-slate-950/90 p-4 rounded-xl border border-amber-900/40 text-xs space-y-2.5">
-                          <p className="font-bold text-amber-300">Siga estes 4 passos simples para ativar o serviço:</p>
-                          <ol className="list-decimal pl-4 space-y-1.5 text-slate-300">
+                          <p className="font-bold text-amber-300">
+                            🚨 Solução para "RefererNotAllowedMapError" (Domínio Não Autorizado):
+                          </p>
+                          <p className="text-slate-300 leading-relaxed">
+                            Sua chave de API possui restrição de site/HTTP Referrer no Google Cloud. Para liberar este domínio para os mapas:
+                          </p>
+                          <ol className="list-decimal pl-4 space-y-2 text-slate-300">
                             <li>
-                              Acesse o seu <a href="https://console.cloud.google.com/" target="_blank" rel="norereferrer" className="text-blue-400 underline hover:text-blue-300 font-bold inline-flex items-center gap-0.5">Google Cloud Console <ExternalLink className="w-3 h-3 inline" /></a> e selecione seu projeto.
+                              Acesse o <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noreferrer" className="text-blue-400 underline font-bold inline-flex items-center gap-0.5">Google Cloud Console &gt; Credenciais <ExternalLink className="w-3 h-3 inline" /></a>.
                             </li>
                             <li>
-                              No menu lateral, vá em <strong className="text-white">APIs e Serviços &gt; Biblioteca</strong> e certifique-se de que ambas as APIs abaixo estejam <span className="text-emerald-400 font-bold">ATIVADAS</span>:
-                              <ul className="list-disc pl-5 mt-1 space-y-1 text-amber-200/80">
-                                <li><strong className="text-white">Maps JavaScript API</strong> (responsável por renderizar o mapa visual)</li>
-                                <li><strong className="text-white">Places API (New)</strong> ou <strong className="text-white">Places API</strong> (responsável pelo autocompletar e busca de endereços)</li>
-                              </ul>
+                              Clique na sua <strong>Chave de API (API Key)</strong> para editá-la.
                             </li>
                             <li>
-                              Acesse <strong className="text-white">APIs e Serviços &gt; Credenciais</strong> e pegue sua <strong className="text-white">Chave de API (API Key)</strong>. Verifique se a chave não possui restrições de API que impeçam o uso do Maps/Places.
+                              Em <strong>Restrições de aplicativo</strong>, na opção <em>HTTP referrers (web sites)</em>, adicione o URL deste site:
+                              <div className="bg-slate-900 p-2 rounded border border-slate-800 my-1 font-mono text-[11px] text-emerald-400 select-all font-bold">
+                                {typeof window !== 'undefined' ? `${window.location.origin}/*` : 'https://*.run.app/*'}
+                              </div>
+                              <span className="text-[10.5px] text-slate-400 block">Dica: Adicione também <code className="text-amber-300">https://*.run.app/*</code> e <code className="text-amber-300">https://*.vercel.app/*</code> para liberar todas as instâncias de preview e produção!</span>
                             </li>
                             <li>
-                              No AI Studio, clique nas <strong className="text-white">Settings</strong> (ícone de engrenagem ⚙️ no canto superior direito) &gt; aba <strong className="text-white">Secrets</strong>. Adicione ou atualize a chave <code className="bg-slate-900 text-emerald-400 px-1.5 py-0.5 rounded text-[11px] font-mono font-bold">GOOGLE_MAPS_PLATFORM_KEY</code> com sua chave copiada e aperte Enter. O aplicativo recompilará em segundos com a nova chave!
+                              Verifique também se as APIs <strong>Maps JavaScript API</strong> e <strong>Places API</strong> estão ativadas em <em>APIs e Serviços &gt; Biblioteca</em>.
                             </li>
                           </ol>
                         </div>
@@ -2126,7 +2173,7 @@ function AppInner() {
             {/* Filter controls */}
             <div className="flex flex-col md:flex-row gap-3 bg-slate-900/60 p-4 rounded-2xl border border-slate-850 text-xs">
               <div className="flex-1 flex items-center bg-slate-950 rounded-xl px-3 border border-slate-800">
-                <Search className="w-4 h-4 text-slate-500 mr-2" />
+                <Search className="w-4 h-4 text-slate-500 mr-2 shrink-0" />
                 <input
                   type="text"
                   placeholder="Pesquisar por nome, CPF ou processo judicial..."
@@ -2136,19 +2183,35 @@ function AppInner() {
                 />
               </div>
 
-              <div className="flex items-center gap-2">
-                <Calendar className="w-4 h-4 text-slate-400 shrink-0" />
-                <span className="text-slate-400 text-xs font-bold">Mês de Expedição:</span>
-                <select
-                  value={issueMonthFilter}
-                  onChange={(e) => setIssueMonthFilter(e.target.value)}
-                  className="bg-slate-950 text-slate-200 text-xs py-1.5 px-3 rounded-lg border border-slate-800 focus:outline-none focus:border-emerald-500 font-bold cursor-pointer"
-                >
-                  <option value="Todos">Todos os Meses ({availableIssueMonths.length})</option>
-                  {availableIssueMonths.map((m) => (
-                    <option key={m.key} value={m.key}>{m.label}</option>
-                  ))}
-                </select>
+              <div className="flex flex-wrap items-center gap-3">
+                <div className="flex items-center gap-2">
+                  <Calendar className="w-4 h-4 text-slate-400 shrink-0" />
+                  <span className="text-slate-400 text-xs font-bold">Mês de Expedição:</span>
+                  <select
+                    value={issueMonthFilter}
+                    onChange={(e) => setIssueMonthFilter(e.target.value)}
+                    className="bg-slate-950 text-slate-200 text-xs py-1.5 px-3 rounded-lg border border-slate-800 focus:outline-none focus:border-emerald-500 font-bold cursor-pointer"
+                  >
+                    <option value="Todos">Todos os Meses ({availableIssueMonths.length})</option>
+                    {availableIssueMonths.map((m) => (
+                      <option key={m.key} value={m.key}>{m.label}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <Clock className="w-4 h-4 text-amber-400 shrink-0" />
+                  <span className="text-slate-400 text-xs font-bold">Vencimento:</span>
+                  <select
+                    value={expiryStatusFilter}
+                    onChange={(e) => setExpiryStatusFilter(e.target.value as 'Todos' | '30d' | 'Expiradas')}
+                    className="bg-slate-950 text-slate-200 text-xs py-1.5 px-3 rounded-lg border border-slate-800 focus:outline-none focus:border-emerald-500 font-bold cursor-pointer"
+                  >
+                    <option value="Todos">Todas as Medidas</option>
+                    <option value="30d">⚠️ A Vencer em 30 Dias</option>
+                    <option value="Expiradas">⛔ Medidas Expiradas</option>
+                  </select>
+                </div>
               </div>
             </div>
 
@@ -2165,74 +2228,105 @@ function AppInner() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-850">
-                  {filteredVictims.map((v) => (
-                    <tr key={v.id} className="hover:bg-slate-900/40 transition-colors">
-                      <td className="px-5 py-4">
-                        <div className="flex items-center gap-2">
-                          {v.protectiveOrder?.expiryDate && (() => {
-                            try {
-                              const expiryStr = v.protectiveOrder.expiryDate.split('T')[0];
-                              const expiry = new Date(expiryStr + 'T12:00:00');
-                              if (isNaN(expiry.getTime())) return null;
-                              const today = new Date();
-                              today.setHours(0, 0, 0, 0);
-                              const diffDays = Math.ceil((expiry.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
-                              if (diffDays < 16) {
-                                return (
-                                  <AlertTriangle 
-                                    className="w-4 h-4 text-rose-500 shrink-0 animate-pulse" 
-                                    title={`Atenção: Medida protetiva expira em ${diffDays} dias! (Menos de 16 dias)`} 
-                                  />
-                                );
-                              }
-                            } catch (e) {
-                              return null;
-                            }
-                            return null;
-                          })()}
-                          <span className="font-extrabold text-slate-100 text-sm block">{v.name}</span>
-                        </div>
-                        <div className="text-[10px] text-slate-400 flex items-center gap-2 mt-0.5 font-mono">
-                          <span>CPF: {v.cpf}</span>
-                          <span>•</span>
-                          <span>Cadastrada em {safeFormatDate(v.createdAt)}</span>
-                        </div>
-                      </td>
-                      <td className="px-5 py-4">
-                        <span className="font-semibold block">{v.phone}</span>
-                        <span className="text-[10px] text-slate-400 block mt-0.5 truncate max-w-[200px]" title={v.address}>
-                          {v.address}
-                        </span>
-                      </td>
-                      <td className="px-5 py-4">
-                        <span className={`px-2.5 py-1 rounded text-[10px] font-black uppercase tracking-wider ${
-                          v.riskLevel === 'Alto' ? 'bg-red-950 text-red-400 border border-red-900/40 animate-pulse' :
-                          v.riskLevel === 'Médio' ? 'bg-amber-950 text-amber-400 border border-amber-900/40' :
-                          'bg-emerald-950 text-emerald-400'
-                        }`}>
-                          {v.riskLevel} Gravidade
-                        </span>
-                      </td>
-                      <td className="px-5 py-4 max-w-[220px]">
-                        {v.protectiveOrder ? (
-                          <div>
-                            <span className="font-bold text-slate-300 block font-mono text-[10.5px] truncate" title={v.protectiveOrder.orderNumber}>
-                              Proc: {v.protectiveOrder.orderNumber}
-                            </span>
-                            {v.protectiveOrder.defendantName && (
-                              <span className="text-[10px] text-amber-300 block mt-0.5 truncate" title={v.protectiveOrder.defendantName}>Réu: {v.protectiveOrder.defendantName}</span>
+                  {filteredVictims.map((v) => {
+                    const expiryInfo = getExpiryInfo(v.protectiveOrder?.expiryDate);
+
+                    return (
+                      <tr key={v.id} className={`hover:bg-slate-900/40 transition-colors ${
+                        expiryInfo?.isExpiring30Days ? 'bg-amber-950/10' : expiryInfo?.isExpired ? 'bg-rose-950/10' : ''
+                      }`}>
+                        <td className="px-5 py-4">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="font-extrabold text-slate-100 text-sm block">{v.name}</span>
+
+                            {/* Visual BADGE for 30-day expiration */}
+                            {expiryInfo && (
+                              expiryInfo.isExpired ? (
+                                <span 
+                                  className="inline-flex items-center gap-1 bg-red-950/90 text-red-400 border border-red-800/80 px-2 py-0.5 rounded-full text-[10px] font-black tracking-wide"
+                                  title={`Medida Protetiva Venceu há ${Math.abs(expiryInfo.diffDays)} dia(s)`}
+                                >
+                                  <AlertOctagon className="w-3 h-3 text-red-400 shrink-0" />
+                                  MEDIDA EXPIRADA
+                                </span>
+                              ) : expiryInfo.isExpiring15Days ? (
+                                <span 
+                                  className="inline-flex items-center gap-1 bg-rose-950/90 text-rose-300 border border-rose-800/80 px-2 py-0.5 rounded-full text-[10px] font-black tracking-wide animate-pulse"
+                                  title={`ATENÇÃO CRÍTICA: Medida protetiva expira em ${expiryInfo.diffDays} dias!`}
+                                >
+                                  <AlertTriangle className="w-3 h-3 text-rose-400 shrink-0" />
+                                  {expiryInfo.diffDays === 0 ? 'EXPIRA HOJE!' : `EXPIRA EM ${expiryInfo.diffDays}D`}
+                                </span>
+                              ) : expiryInfo.isExpiring30Days ? (
+                                <span 
+                                  className="inline-flex items-center gap-1 bg-amber-950/90 text-amber-300 border border-amber-800/80 px-2 py-0.5 rounded-full text-[10px] font-black tracking-wide"
+                                  title={`Atenção: Medida protetiva expira em ${expiryInfo.diffDays} dias (Próximos 30 dias)`}
+                                >
+                                  <Clock className="w-3 h-3 text-amber-400 shrink-0" />
+                                  EXPIRA EM {expiryInfo.diffDays}D
+                                </span>
+                              ) : null
                             )}
-                            {v.protectiveOrder.issueDate && (
-                              <span className="text-[10px] text-sky-300 block mt-0.5">
-                                Expedição: {safeFormatDate(v.protectiveOrder.issueDate)}
-                              </span>
-                            )}
-                            <span className="text-[10px] text-rose-300 block mt-0.5">Expira: {safeFormatDate(v.protectiveOrder.expiryDate)}</span>
                           </div>
-                        ) : (
-                          <span className="text-slate-500 italic text-[11px]">Nenhuma medida cadastrada</span>
-                        )}
-                      </td>
+                          <div className="text-[10px] text-slate-400 flex items-center gap-2 mt-0.5 font-mono">
+                            <span>CPF: {v.cpf}</span>
+                            <span>•</span>
+                            <span>Cadastrada em {safeFormatDate(v.createdAt)}</span>
+                          </div>
+                        </td>
+                        <td className="px-5 py-4">
+                          <span className="font-semibold block">{v.phone}</span>
+                          <span className="text-[10px] text-slate-400 block mt-0.5 truncate max-w-[200px]" title={v.address}>
+                            {v.address}
+                          </span>
+                        </td>
+                        <td className="px-5 py-4">
+                          <span className={`px-2.5 py-1 rounded text-[10px] font-black uppercase tracking-wider ${
+                            v.riskLevel === 'Alto' ? 'bg-red-950 text-red-400 border border-red-900/40 animate-pulse' :
+                            v.riskLevel === 'Médio' ? 'bg-amber-950 text-amber-400 border border-amber-900/40' :
+                            'bg-emerald-950 text-emerald-400'
+                          }`}>
+                            {v.riskLevel} Gravidade
+                          </span>
+                        </td>
+                        <td className="px-5 py-4 max-w-[220px]">
+                          {v.protectiveOrder ? (
+                            <div>
+                              <span className="font-bold text-slate-300 block font-mono text-[10.5px] truncate" title={v.protectiveOrder.orderNumber}>
+                                Proc: {v.protectiveOrder.orderNumber}
+                              </span>
+                              {v.protectiveOrder.defendantName && (
+                                <span className="text-[10px] text-amber-300 block mt-0.5 truncate" title={v.protectiveOrder.defendantName}>Réu: {v.protectiveOrder.defendantName}</span>
+                              )}
+                              {v.protectiveOrder.issueDate && (
+                                <span className="text-[10px] text-sky-300 block mt-0.5">
+                                  Expedição: {safeFormatDate(v.protectiveOrder.issueDate)}
+                                </span>
+                              )}
+                              <div className="flex items-center gap-1.5 flex-wrap mt-1">
+                                <span className={`text-[10px] font-semibold ${
+                                  expiryInfo?.isExpired ? 'text-red-400 font-bold' :
+                                  expiryInfo?.isExpiring30Days ? 'text-amber-300 font-bold' :
+                                  'text-rose-300'
+                                }`}>
+                                  Expira: {safeFormatDate(v.protectiveOrder.expiryDate)}
+                                </span>
+                                {expiryInfo?.isExpiring30Days && (
+                                  <span className="bg-amber-500/20 text-amber-300 border border-amber-500/40 text-[9px] px-1.5 py-0.5 rounded font-black uppercase tracking-tight flex items-center gap-0.5">
+                                    <Clock className="w-2.5 h-2.5 text-amber-400" /> &lt; 30d
+                                  </span>
+                                )}
+                                {expiryInfo?.isExpired && (
+                                  <span className="bg-red-500/20 text-red-300 border border-red-500/40 text-[9px] px-1.5 py-0.5 rounded font-black uppercase tracking-tight flex items-center gap-0.5">
+                                    <AlertOctagon className="w-2.5 h-2.5 text-red-400" /> Vencida
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          ) : (
+                            <span className="text-slate-500 italic text-[11px]">Nenhuma medida cadastrada</span>
+                          )}
+                        </td>
                       <td className="px-5 py-4 text-right">
                         <div className="flex items-center justify-end gap-1 px-1">
                           <button
@@ -2264,7 +2358,8 @@ function AppInner() {
                         </div>
                       </td>
                     </tr>
-                  ))}
+                  );
+                })}
 
                   {filteredVictims.length === 0 && (
                     <tr>

@@ -1,6 +1,7 @@
 import { collection, doc, setDoc, getDocs, updateDoc, deleteDoc, getDoc, writeBatch } from 'firebase/firestore';
 import { db } from '../firebase';
 import { getAuth } from 'firebase/auth';
+import { parsePdfClientSide } from './pdfParser';
 
 const generateId = (prefix: string) => `${prefix}_${Date.now()}`;
 
@@ -152,6 +153,31 @@ export const firebaseApiFetch = async (url: string, options?: any) => {
       console.log("EMAIL:", auth.currentUser?.email);
       await setDoc(doc(db, 'occurrences', id), occ);
       return { ok: true, json: async () => ({ id, ...occ }) };
+    }
+
+    if (url === '/api/parse-pdf' && method === 'POST') {
+      try {
+        const res = await fetch(url, options);
+        if (res.ok) {
+          return res;
+        }
+      } catch (e) {
+        // Backend server route unaccessible (e.g. static host like Vercel)
+      }
+
+      // Fallback to client-side PDF parsing
+      try {
+        const parsedData = await parsePdfClientSide(body?.pdfBase64 || '');
+        return {
+          ok: true,
+          json: async () => parsedData
+        };
+      } catch (pdfErr: any) {
+        return {
+          ok: false,
+          json: async () => ({ error: pdfErr.message || 'Erro ao analisar PDF no cliente.' })
+        };
+      }
     }
 
   } catch(e: any) {
