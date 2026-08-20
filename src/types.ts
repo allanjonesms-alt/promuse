@@ -1,3 +1,13 @@
+export interface AttachedFile {
+  id: string;
+  name: string;
+  size?: number;
+  type?: string;
+  dataUrl: string;
+  uploadedAt: string;
+  category?: 'MPU' | 'Sentença' | 'Boletim' | 'Relatório' | 'Documento' | 'Outro';
+}
+
 export interface ProtectiveOrder {
   id: string;
   orderNumber: string;
@@ -10,6 +20,8 @@ export interface ProtectiveOrder {
   status: 'Ativa' | 'Expirada' | 'Revogada';
   revocationNoticeNumber?: string;
   revocationDate?: string;
+  mpuPdf?: AttachedFile;
+  attachments?: AttachedFile[];
 }
 
 export interface Victim {
@@ -22,7 +34,12 @@ export interface Victim {
   policeOfficerInCharge?: string;
   assignedPatrol?: string;
   createdAt: string;
+  acceptedPromuse?: 'SIM' | 'NÃO' | 'SOMENTE RONDAS' | boolean;
+  victimPhotoUrl?: string;
   aggressorPhotoUrl?: string;
+  defendantPhotoUrl?: string;
+  mpuPdf?: AttachedFile;
+  attachments?: AttachedFile[];
   protectiveOrder?: ProtectiveOrder;
   coordinates?: {
     latitude: number;

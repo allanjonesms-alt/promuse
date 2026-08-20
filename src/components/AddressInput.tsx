@@ -24,21 +24,13 @@ export function validateAddress(address: string): { isValid: boolean; error?: st
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "");
 
-  // Check if State is MS (Mato Grosso do Sul)
-  const hasMS = normalized.includes('ms') || normalized.includes('mato grosso do sul');
-  if (!hasMS) {
+  // Other explicit states check
+  const otherStates = ['sao paulo', ' sp', '-sp', 'rio de janeiro', ' rj', '-rj', 'parana', ' pr', '-pr', 'minas gerais', ' mg', '-mg', 'goias', ' go', '-go', 'mato grosso -', ' mt '];
+  const hasOtherState = otherStates.some(st => normalized.includes(st));
+  if (hasOtherState && !normalized.includes('rio verde de mt')) {
     return {
       isValid: false,
-      error: 'O endereço precisa ser no estado de Mato Grosso do Sul (MS).'
-    };
-  }
-
-  // Check if City is one of the allowed 5 cities
-  const matched = ALLOWED_CITIES.some(city => normalized.includes(city));
-  if (!matched) {
-    return {
-      isValid: false,
-      error: 'Permitido apenas: Coxim, Alcinópolis, Pedro Gomes, Sonora ou Rio Verde de MT.'
+      error: 'O PROMUSE 5º BPM atua na comarca de Mato Grosso do Sul (Coxim, Sonora, Pedro Gomes, Alcinópolis e Rio Verde de MT).'
     };
   }
 

@@ -19,6 +19,7 @@ export const PrintableFicha = forwardRef<HTMLDivElement, PrintableFichaProps>(
 
     const formatDate = (dateStr?: string) => {
       if (!dateStr) return '';
+      if (/indeterminado/i.test(dateStr)) return 'PRAZO INDETERMINADO';
       try {
         const [year, month, day] = dateStr.split('-');
         if (!year || !month || !day) return dateStr;
@@ -57,7 +58,23 @@ export const PrintableFicha = forwardRef<HTMLDivElement, PrintableFichaProps>(
                 <td className="border border-black p-2 w-1/3 uppercase font-bold">DATA INICIAL MPU: <span className="font-normal">{formatDate(victim.protectiveOrder?.issueDate)}</span></td>
               </tr>
               <tr>
-                <td className="border border-black p-2 uppercase font-bold" colSpan={2}>VÍTIMA: <span className="font-normal">{victim.name}</span></td>
+                <td className="border border-black p-2 uppercase font-bold" colSpan={2}>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      VÍTIMA: <span className="font-normal">{victim.name}</span>
+                      {victim.cpf && <span className="font-normal ml-3 text-xs">(CPF: {victim.cpf})</span>}
+                    </div>
+                    {victim.victimPhotoUrl && (
+                      <div className="h-16 w-16 border border-black overflow-hidden flex-shrink-0 ml-2">
+                        <img 
+                          src={victim.victimPhotoUrl} 
+                          alt="Foto da Vítima" 
+                          className="w-full h-full object-cover"
+                        />
+                      </div>
+                    )}
+                  </div>
+                </td>
               </tr>
               <tr>
                 <td className="border border-black p-2 uppercase font-bold" colSpan={2}>ENDEREÇO: <span className="font-normal">{victim.address}</span></td>

@@ -3,6 +3,9 @@ export function safeFormatDate(dateVal?: string | number | Date | null): string 
   try {
     if (typeof dateVal === 'string') {
       const clean = dateVal.trim();
+      if (/indeterminado/i.test(clean)) {
+        return 'Indeterminado';
+      }
       // Handle YYYY-MM-DD
       if (/^\d{4}-\d{2}-\d{2}$/.test(clean)) {
         const [year, month, day] = clean.split('-');

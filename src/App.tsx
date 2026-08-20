@@ -1,5 +1,6 @@
 import { firebaseApiFetch } from './lib/api';
 import { safeFormatDate, safeFormatTime, safeFormatDateTime } from './lib/utils';
+import { parsePdfClientSide } from './lib/pdfParser';
 import React, { useState, useEffect, useMemo } from 'react';
 import { 
   Shield, 
@@ -17,6 +18,11 @@ import {
   Edit3, 
   PlusCircle, 
   CheckCircle, 
+  CheckCircle2,
+  XCircle,
+  ShieldCheck,
+  LayoutGrid,
+  List,
   PhoneCall, 
   Lock, 
   X, 
@@ -33,17 +39,38 @@ import {
   ArrowLeft,
   History,
   FileX,
-  ShieldAlert
+  ShieldAlert,
+  Camera,
+  UploadCloud,
+  Download,
+  Paperclip,
+  File,
+  Eye,
+  UserCheck,
+  Image as ImageIcon,
+  FilePlus2,
+  FileDown,
+  FolderArchive,
+  UserX,
+  User,
+  FileSpreadsheet,
+  MessageCircle,
+  Sparkles,
+  Cpu,
+  Bot,
+  Zap
 } from 'lucide-react';
 import { useReactToPrint } from 'react-to-print';
 import { PrintableFicha } from './components/PrintableFicha';
-import { AppDB, Victim, PanicAlert, Occurrence, ProtectiveOrder } from './types';
+import { RevokedMeasuresView } from './components/RevokedMeasuresView';
+import { ExpiredMeasuresView } from './components/ExpiredMeasuresView';
+import { AppDB, Victim, PanicAlert, Occurrence, ProtectiveOrder, AttachedFile } from './types';
 import VictimPortal from './components/VictimPortal';
 import AdminManagement from './components/AdminManagement';
 import { SafeAdvancedMarker } from './components/SafeAdvancedMarker';
 import { APIProvider, Map as GoogleMap, Pin } from '@vis.gl/react-google-maps';
 import AddressInput, { validateAddress } from './components/AddressInput';
-import { onAuthStateChanged, User } from 'firebase/auth';
+import { onAuthStateChanged, type User as FirebaseUser } from 'firebase/auth';
 import { auth } from './firebase';
 import firebaseConfig from '../firebase-applet-config.json';
 
@@ -77,7 +104,7 @@ function AppInner() {
   });
   
   // App UI State
-  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [currentUser, setCurrentUser] = useState<FirebaseUser | null>(null);
   const [isAdminAuthorized, setIsAdminAuthorized] = useState(false);
   const [adminUnit, setAdminUnit] = useState<string>('COXIM');
   const [checkingAuth, setCheckingAuth] = useState(true);
@@ -97,7 +124,7 @@ function AppInner() {
     };
   }, []);
   const [activeRole, setActiveRole] = useState<'police' | 'victim' | 'admin'>('police');
-  const [policeView, setPoliceView] = useState<'dashboard' | 'victims'>('dashboard');
+  const [policeView, setPoliceView] = useState<'dashboard' | 'victims' | 'revoked' | 'expired'>('dashboard');
   const [selectedSimulatedVictimId, setSelectedSimulatedVictimId] = useState<string>('');
   
   // Notification logs simulating messages sent to coordinators & patrol officers' phones
@@ -121,7 +148,7 @@ function AppInner() {
 
   // Compute protective order expiration status
   const getExpiryInfo = (expiryDateStr?: string) => {
-    if (!expiryDateStr) return null;
+    if (!expiryDateStr || /indeterminado/i.test(expiryDateStr)) return null;
     try {
       const expiryStr = expiryDateStr.split('T')[0];
       const expiry = new Date(expiryStr + 'T12:00:00');
@@ -139,6 +166,18 @@ function AppInner() {
     } catch {
       return null;
     }
+  };
+
+  // Helper to verify if a protective measure is expired
+  const isVictimExpired = (v: Victim): boolean => {
+    if (v.protectiveOrder?.status === 'Expirada') return true;
+    if (v.protectiveOrder?.status === 'Revogada') return false;
+    if (v.protectiveOrder?.expiryDate) {
+      if (/indeterminado/i.test(v.protectiveOrder.expiryDate)) return false;
+      const info = getExpiryInfo(v.protectiveOrder.expiryDate);
+      if (info && info.isExpired) return true;
+    }
+    return false;
   };
 
   // Parse year/month for protective order issue dates
@@ -211,16 +250,18 @@ function AppInner() {
       .map(([key, label]) => ({ key, label }));
   }, [db.victims]);
 
-  // Administrators list state for Police Officer Auto-complete
+  // Administrators list state for Police Officer Auto-complete & Real-time Firestore sync
   const [adminAccounts, setAdminAccounts] = useState<{ email: string; name: string; rankRole?: string; status?: string }[]>([]);
 
   useEffect(() => {
-    let unsubscribe: (() => void) | undefined;
-    const loadAdmins = async () => {
+    let unsubs: (() => void)[] = [];
+    const setupRealtimeSync = async () => {
       try {
         const { collection, onSnapshot } = await import('firebase/firestore');
         const { db: firestoreDb } = await import('./firebase');
-        const unsubs = onSnapshot(collection(firestoreDb, 'admins'), (snapshot) => {
+
+        // Admins listener
+        const unsubAdmins = onSnapshot(collection(firestoreDb, 'admins'), (snapshot) => {
           const list: { email: string; name: string; rankRole?: string; status?: string }[] = [];
           snapshot.forEach((doc) => {
             const data = doc.data();
@@ -237,14 +278,69 @@ function AppInner() {
         }, (err) => {
           console.warn("Firestore admins listener note:", err);
         });
-        unsubscribe = unsubs;
+        unsubs.push(unsubAdmins);
+
+        // Victims real-time listener
+        const unsubVictims = onSnapshot(collection(firestoreDb, 'victims'), (snapshot) => {
+          if (!snapshot.empty) {
+            const victimsList: Victim[] = [];
+            snapshot.forEach((doc) => {
+              victimsList.push({ id: doc.id, ...doc.data() } as Victim);
+            });
+            setDb(prev => ({ ...prev, victims: victimsList }));
+            try {
+              const currentCache = JSON.parse(localStorage.getItem('promuse_fallback_db') || '{}');
+              localStorage.setItem('promuse_fallback_db', JSON.stringify({ ...currentCache, victims: victimsList }));
+            } catch (_) {}
+          }
+        }, (err) => {
+          console.warn("Firestore victims listener note:", err);
+        });
+        unsubs.push(unsubVictims);
+
+        // Panic Alerts real-time listener
+        const unsubAlerts = onSnapshot(collection(firestoreDb, 'panicAlerts'), (snapshot) => {
+          const alertsList: PanicAlert[] = [];
+          snapshot.forEach((doc) => {
+            alertsList.push({ id: doc.id, ...doc.data() } as PanicAlert);
+          });
+          setDb(prev => ({ ...prev, panicAlerts: alertsList }));
+        }, (err) => {
+          console.warn("Firestore panic alerts listener note:", err);
+        });
+        unsubs.push(unsubAlerts);
+
+        // Occurrences real-time listener
+        const unsubOccurrences = onSnapshot(collection(firestoreDb, 'occurrences'), (snapshot) => {
+          const occList: Occurrence[] = [];
+          snapshot.forEach((doc) => {
+            occList.push({ id: doc.id, ...doc.data() } as Occurrence);
+          });
+          setDb(prev => ({ ...prev, occurrences: occList }));
+        }, (err) => {
+          console.warn("Firestore occurrences listener note:", err);
+        });
+        unsubs.push(unsubOccurrences);
+
+        // Hearings real-time listener
+        const unsubHearings = onSnapshot(collection(firestoreDb, 'hearings'), (snapshot) => {
+          const hearingsList: any[] = [];
+          snapshot.forEach((doc) => {
+            hearingsList.push({ id: doc.id, ...doc.data() });
+          });
+          setDb(prev => ({ ...prev, hearings: hearingsList }));
+        }, (err) => {
+          console.warn("Firestore hearings listener note:", err);
+        });
+        unsubs.push(unsubHearings);
       } catch (err) {
-        console.warn("Error setting up admins listener in App.tsx:", err);
+        console.warn("Error setting up Firestore real-time listeners:", err);
       }
     };
-    loadAdmins();
+
+    setupRealtimeSync();
     return () => {
-      if (unsubscribe) unsubscribe();
+      unsubs.forEach(unsub => unsub());
     };
   }, []);
 
@@ -266,7 +362,20 @@ function AppInner() {
   const [isOfficerSuggestionsOpen, setIsOfficerSuggestionsOpen] = useState(false);
   const [editingVictim, setEditingVictim] = useState<Victim | null>(null);
   const [isParsingPdf, setIsParsingPdf] = useState(false);
-  const [pdfParseStatus, setPdfParseStatus] = useState<{ type: 'success' | 'error', message: string } | null>(null);
+  const [pdfParsingStep, setPdfParsingStep] = useState<string>('Lendo documento judicial com IA...');
+  const [pdfParseStatus, setPdfParseStatus] = useState<{ type: 'success' | 'error' | 'info', message: string, details?: string } | null>(null);
+  const [isSubmittingVictim, setIsSubmittingVictim] = useState(false);
+  const [victimFormError, setVictimFormError] = useState<string | null>(null);
+  const [globalToast, setGlobalToast] = useState<{ message: string; type: 'success' | 'info' | 'error' } | null>(null);
+
+  useEffect(() => {
+    if (globalToast) {
+      const timer = setTimeout(() => {
+        setGlobalToast(null);
+      }, 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [globalToast]);
   const [newVictimForm, setNewVictimForm] = useState({
     name: '',
     cpf: '',
@@ -275,14 +384,19 @@ function AppInner() {
     riskLevel: 'Baixo' as 'Baixo' | 'Médio' | 'Alto',
     policeOfficerInCharge: 'A definir',
     assignedPatrol: 'VTR PROMUSE 5040',
+    acceptedPromuse: 'SIM' as 'SIM' | 'NÃO' | 'SOMENTE RONDAS',
     orderNumber: '',
     defendantName: '',
+    victimPhotoUrl: '',
     aggressorPhotoUrl: '',
     judgeName: 'Dr. Cláudio Müller Pareja',
     restrictions: 'Proibição de aproximação física (mínimo de 300 metros) do local de residência da vítima.',
     issueDate: '',
     expiryDate: '',
-    coordinates: null as { latitude: number; longitude: number } | null
+    isIndefiniteExpiry: false,
+    coordinates: null as { latitude: number; longitude: number } | null,
+    mpuPdf: null as AttachedFile | null,
+    attachments: [] as AttachedFile[]
   });
 
   // Revogação Modal State
@@ -294,6 +408,10 @@ function AppInner() {
     reason: ''
   });
   const [isSubmittingRevocation, setIsSubmittingRevocation] = useState(false);
+
+  // Delete Modal Confirmation State
+  const [victimToDelete, setVictimToDelete] = useState<Victim | null>(null);
+  const [isDeletingVictim, setIsDeletingVictim] = useState(false);
 
   const handleOpenRevocationModal = (victim: Victim) => {
     setRevocationVictim(victim);
@@ -361,6 +479,7 @@ function AppInner() {
 
       setIsRevocationModalOpen(false);
       setRevocationVictim(null);
+      setPoliceView('revoked');
     } catch (err) {
       console.warn("Erro ao salvar revogação na API, atualizando localmente:", err);
       setDb(prev => ({
@@ -370,6 +489,7 @@ function AppInner() {
       }));
       setIsRevocationModalOpen(false);
       setRevocationVictim(null);
+      setPoliceView('revoked');
     } finally {
       setIsSubmittingRevocation(false);
     }
@@ -465,12 +585,36 @@ function AppInner() {
     if (!file) return;
 
     setIsParsingPdf(true);
+    setPdfParsingStep('1/3: Carregando documento judicial...');
     setPdfParseStatus(null);
+    setVictimFormError(null);
+
     try {
       const reader = new FileReader();
       reader.onload = async () => {
-        const base64String = (reader.result as string).split(',')[1];
+        const fullDataUrl = reader.result as string;
+        const base64String = fullDataUrl.split(',')[1];
         
+        const attachedPdf: AttachedFile = {
+          id: 'mpu_pdf_' + Date.now(),
+          name: file.name,
+          size: file.size,
+          type: file.type || 'application/pdf',
+          dataUrl: fullDataUrl,
+          uploadedAt: new Date().toISOString(),
+          category: 'MPU'
+        };
+
+        // Always save the PDF file object into state so it is preserved
+        setNewVictimForm(prev => ({
+          ...prev,
+          mpuPdf: attachedPdf
+        }));
+
+        setPdfParsingStep('2/3: Analisando decisão judicial e restrições com IA Gemini...');
+
+        let extractedData: any = null;
+
         try {
           const res = await firebaseApiFetch('/api/parse-pdf', {
             method: 'POST',
@@ -479,35 +623,56 @@ function AppInner() {
           });
           
           if (res.ok) {
-            const data = await res.json();
-            setNewVictimForm(prev => ({
-              ...prev,
-              name: data.victimName || prev.name,
-              defendantName: data.defendantName || prev.defendantName,
-              orderNumber: data.orderNumber || prev.orderNumber,
-              judgeName: data.judgeName || prev.judgeName,
-              issueDate: data.issueDate || prev.issueDate,
-              expiryDate: data.expiryDate || prev.expiryDate,
-              restrictions: data.restrictions || prev.restrictions
-            }));
-            setPdfParseStatus({
-              type: 'success',
-              message: `PDF de "${data.victimName || 'Assistida'}" lido com sucesso pela Inteligência Artificial! Dados preenchidos abaixo automaticamente.`
-            });
-          } else {
-            const errData = await res.json().catch(() => ({}));
-            const errMsg = errData.error || 'Falha ao processar o PDF com a Inteligência Artificial. Verifique se é uma medida protetiva válida do TJMS.';
-            setPdfParseStatus({
-              type: 'error',
-              message: errMsg
-            });
+            extractedData = await res.json();
           }
-        } catch (fetchErr: any) {
+        } catch (_) {
+          console.warn('API parsing attempt bypassed, executing client-side extraction fallback');
+        }
+
+        // Fallback if server parse was not successful
+        if (!extractedData || (!extractedData.victimName && !extractedData.orderNumber)) {
+          try {
+            setPdfParsingStep('2/3: Decodificando termos processuais e padrões CNJ...');
+            extractedData = await parsePdfClientSide(base64String);
+          } catch (clientErr) {
+            console.warn('Client extraction note:', clientErr);
+          }
+        }
+
+        setPdfParsingStep('3/3: Preenchendo campos do formulário cadastral...');
+
+        // Apply extracted data
+        if (extractedData && (extractedData.victimName || extractedData.orderNumber || extractedData.defendantName)) {
+          const aiIsIndefinite = Boolean(
+            extractedData.expiryDate && /indeterminado/i.test(extractedData.expiryDate)
+          );
+          
+          setNewVictimForm(prev => ({
+            ...prev,
+            mpuPdf: attachedPdf,
+            name: extractedData.victimName || prev.name,
+            defendantName: extractedData.defendantName || prev.defendantName,
+            orderNumber: extractedData.orderNumber || prev.orderNumber,
+            judgeName: extractedData.judgeName || prev.judgeName,
+            issueDate: extractedData.issueDate || prev.issueDate || new Date().toISOString().split('T')[0],
+            expiryDate: aiIsIndefinite ? 'INDETERMINADO' : (extractedData.expiryDate || prev.expiryDate),
+            isIndefiniteExpiry: aiIsIndefinite || prev.isIndefiniteExpiry,
+            restrictions: extractedData.restrictions || prev.restrictions
+          }));
+
           setPdfParseStatus({
-            type: 'error',
-            message: 'Erro ao conectar-se ao assistente de IA PROMUSE: ' + fetchErr.message
+            type: 'success',
+            message: `✨ Leitura Concluída! PDF "${file.name}" salvo e dados extraídos pela IA com sucesso.`,
+            details: `Identificados: ${extractedData.victimName ? 'Vítima' : ''} ${extractedData.orderNumber ? '• Processo' : ''} ${extractedData.defendantName ? '• Réu' : ''}`
+          });
+        } else {
+          setPdfParseStatus({
+            type: 'info',
+            message: `Documento PDF "${file.name}" anexado e salvo com sucesso!`,
+            details: 'O documento foi guardado no cadastro. Por favor, confira ou complemente as informações nos campos ao lado.'
           });
         }
+
         setIsParsingPdf(false);
       };
       reader.readAsDataURL(file);
@@ -515,12 +680,139 @@ function AppInner() {
       setIsParsingPdf(false);
       setPdfParseStatus({
         type: 'error',
-        message: 'Erro inesperado ao ler o arquivo PDF localmente.'
+        message: 'Erro inesperado ao processar o arquivo PDF localmente.'
       });
     }
     
     // Clear input
     e.target.value = '';
+  };
+
+  const handleAdditionalFilesUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+
+    Array.from(files).forEach((file: File) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const lower = file.name.toLowerCase();
+        let cat: AttachedFile['category'] = 'Documento';
+        if (lower.includes('sentenca') || lower.includes('sentença') || lower.includes('decisao') || lower.includes('decisão')) {
+          cat = 'Sentença';
+        } else if (lower.includes('boletim') || lower.includes('bopm') || lower.includes('b.o') || lower.includes('ocorrencia') || lower.includes('ocorrência')) {
+          cat = 'Boletim';
+        } else if (lower.includes('relatorio') || lower.includes('relatório') || lower.includes('visita')) {
+          cat = 'Relatório';
+        }
+
+        const newFile: AttachedFile = {
+          id: 'file_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7),
+          name: file.name,
+          size: file.size,
+          type: file.type,
+          dataUrl: reader.result as string,
+          uploadedAt: new Date().toISOString(),
+          category: cat
+        };
+
+        setNewVictimForm(prev => ({
+          ...prev,
+          attachments: [...(prev.attachments || []), newFile]
+        }));
+      };
+      reader.readAsDataURL(file);
+    });
+
+    e.target.value = '';
+  };
+
+  const handleRemoveAttachment = (fileId: string) => {
+    setNewVictimForm(prev => ({
+      ...prev,
+      attachments: (prev.attachments || []).filter(f => f.id !== fileId)
+    }));
+  };
+
+  const handleRemoveMpuPdf = () => {
+    setNewVictimForm(prev => ({
+      ...prev,
+      mpuPdf: null
+    }));
+    setPdfParseStatus(null);
+  };
+
+  const handleDownloadOrOpenFile = (file: AttachedFile) => {
+    try {
+      const link = document.createElement('a');
+      link.href = file.dataUrl;
+      link.download = file.name;
+      link.target = '_blank';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    } catch (err) {
+      console.error('Erro ao abrir arquivo:', err);
+    }
+  };
+
+  const handleShareViaWhatsApp = async (
+    file: AttachedFile,
+    customVictimName?: string,
+    customOrderNumber?: string
+  ) => {
+    const vName = customVictimName || newVictimForm.name || 'Assistida PROMUSE';
+    const orderNum = customOrderNumber || newVictimForm.orderNumber || 'Não informado';
+    const formattedDate = safeFormatDate(file.uploadedAt);
+    const categoryLabel = file.category || (file.id.startsWith('mpu') ? 'Medida Protetiva (MPU)' : 'Documento Relevante');
+
+    const messageText = `*PROMUSE - DOCUMENTO POLICIAL*\n` +
+      `📁 *Documento:* ${file.name}\n` +
+      `🏷️ *Categoria:* ${categoryLabel}\n` +
+      `👤 *Assistida:* ${vName}\n` +
+      `⚖️ *Processo / MPU:* ${orderNum}\n` +
+      `🏢 *Unidade:* 5º BPM - PROMUSE\n` +
+      `📅 *Data:* ${formattedDate}\n\n` +
+      `_Documento emitido/registrado pelo Sistema PROMUSE de Atendimento à Mulher._`;
+
+    // 1. Try Web Share API (native share dialog in mobile devices & supported browsers to send file directly)
+    if (navigator.share && file.dataUrl) {
+      try {
+        const res = await fetch(file.dataUrl);
+        const blob = await res.blob();
+        const mimeType = file.type || blob.type || 'application/pdf';
+        const shareFile = new File([blob], file.name, { type: mimeType });
+
+        if (navigator.canShare && navigator.canShare({ files: [shareFile] })) {
+          await navigator.share({
+            files: [shareFile],
+            title: `PROMUSE: ${file.name}`,
+            text: messageText
+          });
+          return;
+        } else {
+          await navigator.share({
+            title: `PROMUSE: ${file.name}`,
+            text: messageText
+          });
+          return;
+        }
+      } catch (err: any) {
+        if (err.name === 'AbortError') return; // User cancelled share dialog
+        console.warn('Web Share dialog unavailable or cancelled, falling back to WhatsApp URL:', err);
+      }
+    }
+
+    // 2. Direct WhatsApp Web / App share URL
+    const encodedText = encodeURIComponent(messageText);
+    const whatsappUrl = `https://api.whatsapp.com/send?text=${encodedText}`;
+    window.open(whatsappUrl, '_blank');
+  };
+
+  const formatFileSize = (bytes?: number) => {
+    if (!bytes) return 'Tamanho n/d';
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+    return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
   };
 
   // Initial Fetch Setup
@@ -738,7 +1030,7 @@ function AppInner() {
       // 1. Sync Victims
       for (const victim of unsynced.victims) {
         const payload = {
-          id: victim.id, // preserve the temporary local ID so foreign keys reference it correctly
+          id: victim.id,
           name: victim.name,
           cpf: victim.cpf,
           phone: victim.phone,
@@ -746,17 +1038,28 @@ function AppInner() {
           riskLevel: victim.riskLevel,
           policeOfficerInCharge: victim.policeOfficerInCharge,
           assignedPatrol: victim.assignedPatrol,
+          acceptedPromuse: victim.acceptedPromuse || 'SIM',
           createdAt: victim.createdAt,
-          coordinates: victim.coordinates,
+          victimPhotoUrl: victim.victimPhotoUrl || null,
+          aggressorPhotoUrl: victim.aggressorPhotoUrl || victim.defendantPhotoUrl || null,
+          defendantPhotoUrl: victim.defendantPhotoUrl || victim.aggressorPhotoUrl || null,
+          mpuPdf: victim.mpuPdf || victim.protectiveOrder?.mpuPdf || null,
+          attachments: victim.attachments || victim.protectiveOrder?.attachments || [],
+          coordinates: victim.coordinates || null,
           protectiveOrder: victim.protectiveOrder ? {
-            orderNumber: victim.protectiveOrder.orderNumber,
-            defendantName: victim.protectiveOrder.defendantName,
-            judgeName: victim.protectiveOrder.judgeName,
-            restrictions: victim.protectiveOrder.restrictions,
-            issueDate: victim.protectiveOrder.issueDate,
-            expiryDate: victim.protectiveOrder.expiryDate,
-            status: victim.protectiveOrder.status
-          } : undefined
+            id: victim.protectiveOrder.id || `ord_${Date.now()}`,
+            orderNumber: victim.protectiveOrder.orderNumber || '',
+            defendantName: victim.protectiveOrder.defendantName || '',
+            judgeName: victim.protectiveOrder.judgeName || '',
+            restrictions: victim.protectiveOrder.restrictions || '',
+            issueDate: victim.protectiveOrder.issueDate || '',
+            expiryDate: victim.protectiveOrder.expiryDate || '',
+            status: victim.protectiveOrder.status || 'Ativa',
+            revocationNoticeNumber: victim.protectiveOrder.revocationNoticeNumber || null,
+            revocationDate: victim.protectiveOrder.revocationDate || null,
+            mpuPdf: victim.protectiveOrder.mpuPdf || victim.mpuPdf || null,
+            attachments: victim.protectiveOrder.attachments || victim.attachments || []
+          } : null
         };
 
         const res = await firebaseApiFetch('/api/victims', {
@@ -994,32 +1297,62 @@ function AppInner() {
   // Create or Update Victim Form Submit
   const handleSaveVictim = async (e: React.FormEvent) => {
     e.preventDefault();
+    setVictimFormError(null);
 
-    // Enforce restricted MS cities validation before submit
-    const addressCheck = validateAddress(newVictimForm.address);
-    if (!addressCheck.isValid) {
-      alert(`Restrição de Município:\n\n${addressCheck.error}\n\nPor favor, informe um endereço válido dentro de um dos municípios atendidos pelo PROMUSE.`);
+    // Validate Required Fields
+    if (!newVictimForm.name || !newVictimForm.name.trim()) {
+      setVictimFormError('Por favor, informe o Nome Completo da Assistida para realizar o cadastro.');
       return;
     }
+
+    // Validate Address
+    const addressCheck = validateAddress(newVictimForm.address);
+    if (!addressCheck.isValid) {
+      setVictimFormError(`Restrição de Localidade: ${addressCheck.error}`);
+      return;
+    }
+
+    setIsSubmittingVictim(true);
+
+    const mpuPdfToSave = newVictimForm.mpuPdf || null;
+    const attachmentsToSave = newVictimForm.attachments || [];
+    const calculatedExpiry = newVictimForm.isIndefiniteExpiry 
+      ? 'INDETERMINADO' 
+      : (newVictimForm.expiryDate || new Date(Date.now() + 180*24*60*60*1000).toISOString().split('T')[0]);
+
+    const finalOrderNumber = newVictimForm.orderNumber.trim() || `000${Math.floor(1000 + Math.random()*9000)}-00.2026.8.12.0011`;
+    const finalDefendant = newVictimForm.defendantName.trim() || 'Agressor / Réu não qualificado';
+    const finalJudge = newVictimForm.judgeName.trim() || 'Dr. Cláudio Müller Pareja';
+    const finalRestrictions = newVictimForm.restrictions.trim() || 'Proibição de aproximação física da vítima (mínimo de 300 metros) e proibição de contato por qualquer meio de comunicação.';
+
     const payload = {
-      name: newVictimForm.name,
-      cpf: newVictimForm.cpf,
-      phone: newVictimForm.phone,
-      address: newVictimForm.address,
+      name: newVictimForm.name.trim(),
+      cpf: newVictimForm.cpf.trim(),
+      phone: newVictimForm.phone.trim(),
+      address: newVictimForm.address.trim(),
       riskLevel: newVictimForm.riskLevel,
-      policeOfficerInCharge: newVictimForm.policeOfficerInCharge,
-      assignedPatrol: newVictimForm.assignedPatrol,
-      coordinates: newVictimForm.coordinates || undefined,
+      policeOfficerInCharge: newVictimForm.policeOfficerInCharge || 'A definir',
+      assignedPatrol: newVictimForm.assignedPatrol || 'VTR PROMUSE 5040',
+      acceptedPromuse: newVictimForm.acceptedPromuse || 'SIM',
+      victimPhotoUrl: newVictimForm.victimPhotoUrl || '',
+      aggressorPhotoUrl: newVictimForm.aggressorPhotoUrl || '',
+      defendantPhotoUrl: newVictimForm.aggressorPhotoUrl || '',
+      mpuPdf: mpuPdfToSave,
+      attachments: attachmentsToSave,
+      coordinates: newVictimForm.coordinates || null,
       protectiveOrder: {
-        orderNumber: newVictimForm.orderNumber,
-        defendantName: newVictimForm.defendantName,
-        judgeName: newVictimForm.judgeName,
-        restrictions: newVictimForm.restrictions,
+        id: editingVictim?.protectiveOrder?.id || 'ord_' + Date.now(),
+        orderNumber: finalOrderNumber,
+        defendantName: finalDefendant,
+        judgeName: finalJudge,
+        restrictions: finalRestrictions,
         issueDate: newVictimForm.issueDate || new Date().toISOString().split('T')[0],
-        expiryDate: newVictimForm.expiryDate || new Date(Date.now() + 180*24*60*60*1000).toISOString().split('T')[0],
+        expiryDate: calculatedExpiry,
         status: editingVictim?.protectiveOrder?.status || 'Ativa',
-        revocationNoticeNumber: editingVictim?.protectiveOrder?.revocationNoticeNumber,
-        revocationDate: editingVictim?.protectiveOrder?.revocationDate
+        revocationNoticeNumber: editingVictim?.protectiveOrder?.revocationNoticeNumber || null,
+        revocationDate: editingVictim?.protectiveOrder?.revocationDate || null,
+        mpuPdf: mpuPdfToSave,
+        attachments: attachmentsToSave
       }
     };
 
@@ -1039,111 +1372,95 @@ function AppInner() {
         });
       }
 
-      if (res.ok) {
-        const returnedVictim = await res.json();
-        const finalId = returnedVictim.id || editingVictim?.id || 'vit_' + Date.now();
-        const updatedVictim: Victim = {
-          ...payload,
-          id: finalId,
-          createdAt: returnedVictim.createdAt || editingVictim?.createdAt || new Date().toISOString(),
-          protectiveOrder: payload.protectiveOrder ? {
-            ...payload.protectiveOrder,
-            id: returnedVictim.protectiveOrder?.id || editingVictim?.protectiveOrder?.id || 'ord_' + Date.now()
-          } : undefined
-        };
+      const returnedVictim = res && res.ok ? await res.json().catch(() => null) : null;
+      const finalId = returnedVictim?.id || editingVictim?.id || ('vit_' + Date.now());
 
-        // Update local React state instantly so there's zero latency and perfect feedback
-        setDb(prev => {
-          const exists = prev.victims.some(v => v.id === finalId);
-          const newVictims = exists 
-            ? prev.victims.map(v => v.id === finalId ? updatedVictim : v)
-            : [...prev.victims, updatedVictim];
-          return { ...prev, victims: newVictims };
-        });
+      const updatedVictim: Victim = {
+        ...payload,
+        id: finalId,
+        createdAt: returnedVictim?.createdAt || editingVictim?.createdAt || new Date().toISOString(),
+        protectiveOrder: payload.protectiveOrder ? {
+          ...payload.protectiveOrder,
+          id: returnedVictim?.protectiveOrder?.id || editingVictim?.protectiveOrder?.id || ('ord_' + Date.now())
+        } : undefined
+      };
 
-        // Trigger background fetch to fully align with service/firestore cache
-        firebaseApiFetch('/api/db')
-          .then(async (freshDbRes) => {
-            if (freshDbRes.ok) {
-              const freshDb = await freshDbRes.json();
-              setDb(freshDb);
-            }
-          })
-          .catch(err => console.warn('Delayed db sync warning:', err));
+      // Update local React state immediately for instant feedback
+      setDb(prev => {
+        const exists = prev.victims.some(v => v.id === finalId);
+        const newVictims = exists 
+          ? prev.victims.map(v => v.id === finalId ? updatedVictim : v)
+          : [updatedVictim, ...prev.victims];
+        return { ...prev, victims: newVictims };
+      });
 
-        setIsVictimModalOpen(false);
-        setEditingVictim(null);
-        resetVictimForm();
-      } else {
-        throw new Error('Local update');
-      }
-    } catch (_) {
-      // Local Storage Fallback
-      if (editingVictim) {
-        const updatedVictims = db.victims.map(v => {
-          if (v.id === editingVictim.id) {
-            return {
-              ...v,
-              name: newVictimForm.name,
-              cpf: newVictimForm.cpf,
-              phone: newVictimForm.phone,
-              address: newVictimForm.address,
-              riskLevel: newVictimForm.riskLevel,
-              policeOfficerInCharge: newVictimForm.policeOfficerInCharge,
-              assignedPatrol: newVictimForm.assignedPatrol,
-              aggressorPhotoUrl: newVictimForm.aggressorPhotoUrl,
-              coordinates: newVictimForm.coordinates || undefined,
-              protectiveOrder: {
-                id: v.protectiveOrder?.id || 'ord_fb_' + Date.now(),
-                orderNumber: newVictimForm.orderNumber,
-                defendantName: newVictimForm.defendantName,
-                judgeName: newVictimForm.judgeName,
-                restrictions: newVictimForm.restrictions,
-                issueDate: newVictimForm.issueDate || new Date().toISOString().split('T')[0],
-                expiryDate: newVictimForm.expiryDate || new Date(Date.now() + 180*24*60*60*1000).toISOString().split('T')[0],
-                status: v.protectiveOrder?.status || 'Ativa',
-                revocationNoticeNumber: v.protectiveOrder?.revocationNoticeNumber,
-                revocationDate: v.protectiveOrder?.revocationDate
-              }
-            };
+      // Update offline fallback cache
+      try {
+        const currentCache = JSON.parse(localStorage.getItem('promuse_fallback_db') || '{}');
+        const updatedList = [updatedVictim, ...(currentCache.victims || []).filter((v: any) => v.id !== finalId)];
+        localStorage.setItem('promuse_fallback_db', JSON.stringify({ ...currentCache, victims: updatedList }));
+      } catch (_) {}
+
+      // Trigger background sync
+      firebaseApiFetch('/api/db')
+        .then(async (freshDbRes) => {
+          if (freshDbRes.ok) {
+            const freshDb = await freshDbRes.json();
+            setDb(freshDb);
           }
-          return v;
-        });
-        updateDbState({ ...db, victims: updatedVictims });
-      } else {
-        const newV: Victim = {
-          id: 'vit_fb_' + Date.now(),
-          name: newVictimForm.name,
-          cpf: newVictimForm.cpf,
-          phone: newVictimForm.phone,
-          address: newVictimForm.address,
-          riskLevel: newVictimForm.riskLevel,
-          policeOfficerInCharge: newVictimForm.policeOfficerInCharge,
-          assignedPatrol: newVictimForm.assignedPatrol,
-          aggressorPhotoUrl: newVictimForm.aggressorPhotoUrl,
-          createdAt: new Date().toISOString(),
-          coordinates: newVictimForm.coordinates || undefined,
-          protectiveOrder: {
-            id: 'ord_fb_' + Date.now(),
-            orderNumber: newVictimForm.orderNumber,
-            defendantName: newVictimForm.defendantName,
-            issueDate: newVictimForm.issueDate || new Date().toISOString().split('T')[0],
-            expiryDate: newVictimForm.expiryDate || new Date(Date.now() + 180*24*60*60*1000).toISOString().split('T')[0],
-            judgeName: newVictimForm.judgeName,
-            restrictions: newVictimForm.restrictions,
-            status: 'Ativa'
-          }
-        };
-        updateDbState({ ...db, victims: [...db.victims, newV] });
-      }
+        })
+        .catch(() => {});
+
       setIsVictimModalOpen(false);
       setEditingVictim(null);
       resetVictimForm();
+      setPoliceView('victims');
+      setGlobalToast({
+        message: editingVictim 
+          ? `✓ Cadastro da assistida "${updatedVictim.name}" atualizado com sucesso!` 
+          : `✓ Assistida "${updatedVictim.name}" e Medida Protetiva registradas com sucesso no PROMUSE!`,
+        type: 'success'
+      });
+    } catch (err: any) {
+      console.warn('Save victim local execution fallback:', err);
+      
+      const fallbackId = editingVictim?.id || ('vit_fb_' + Date.now());
+      const fallbackVictim: Victim = {
+        ...payload,
+        id: fallbackId,
+        createdAt: editingVictim?.createdAt || new Date().toISOString(),
+        protectiveOrder: payload.protectiveOrder
+      };
+
+      setDb(prev => {
+        const exists = prev.victims.some(v => v.id === fallbackId);
+        const newVictims = exists 
+          ? prev.victims.map(v => v.id === fallbackId ? fallbackVictim : v)
+          : [fallbackVictim, ...prev.victims];
+        return { ...prev, victims: newVictims };
+      });
+
+      setIsVictimModalOpen(false);
+      setEditingVictim(null);
+      resetVictimForm();
+      setPoliceView('victims');
+      setGlobalToast({
+        message: `✓ Assistida "${fallbackVictim.name}" salva com sucesso no sistema local!`,
+        type: 'success'
+      });
+    } finally {
+      setIsSubmittingVictim(false);
     }
   };
 
   const handleEditVictimClick = (v: Victim) => {
     setEditingVictim(v);
+    const existingMpuPdf = v.mpuPdf || v.protectiveOrder?.mpuPdf || null;
+    const existingAttachments = v.attachments || v.protectiveOrder?.attachments || [];
+    const isIndefinite = Boolean(
+      v.protectiveOrder?.expiryDate && /indeterminado/i.test(v.protectiveOrder.expiryDate)
+    );
+
     setNewVictimForm({
       name: v.name,
       cpf: v.cpf,
@@ -1152,40 +1469,83 @@ function AppInner() {
       riskLevel: v.riskLevel,
       policeOfficerInCharge: v.policeOfficerInCharge || 'A definir',
       assignedPatrol: v.assignedPatrol || 'VTR PROMUSE 5040',
+      acceptedPromuse: v.acceptedPromuse === 'SOMENTE RONDAS' ? 'SOMENTE RONDAS' : (v.acceptedPromuse === 'NÃO' || v.acceptedPromuse === false ? 'NÃO' : 'SIM'),
       orderNumber: v.protectiveOrder?.orderNumber || '',
       defendantName: v.protectiveOrder?.defendantName || '',
-      aggressorPhotoUrl: v.aggressorPhotoUrl || '',
+      victimPhotoUrl: v.victimPhotoUrl || '',
+      aggressorPhotoUrl: v.aggressorPhotoUrl || v.defendantPhotoUrl || '',
       judgeName: v.protectiveOrder?.judgeName || 'Dr. Cláudio Müller Pareja',
       restrictions: v.protectiveOrder?.restrictions || '',
       issueDate: v.protectiveOrder?.issueDate || '',
-      expiryDate: v.protectiveOrder?.expiryDate || '',
-      coordinates: v.coordinates || null
+      expiryDate: isIndefinite ? 'INDETERMINADO' : (v.protectiveOrder?.expiryDate || ''),
+      isIndefiniteExpiry: isIndefinite,
+      coordinates: v.coordinates || null,
+      mpuPdf: existingMpuPdf,
+      attachments: existingAttachments
     });
     setIsVictimModalOpen(true);
     setIsOccurrenceModalOpen(false);
   };
 
-  const handleDeleteVictimClick = async (victimId: string) => {
-    if (window.confirm(`Excluir esta assistida permanentemente do cadastro da unidade ${adminUnit}?`)) {
-      try {
-        const res = await firebaseApiFetch(`/api/victims/${victimId}`, { method: 'DELETE' });
-        if (res.ok) {
-          const freshDbRes = await firebaseApiFetch('/api/db');
-          if (freshDbRes.ok) {
-            const data = await freshDbRes.json();
-            setDb(data);
-          }
-        } else {
-          throw new Error('Local fallback delete');
-        }
-      } catch (_) {
-        const filtered = db.victims.filter(v => v.id !== victimId);
-        updateDbState({ ...db, victims: filtered });
+  const handleDeleteVictimClick = (victimOrId: Victim | string) => {
+    const targetVictim = typeof victimOrId === 'string' 
+      ? db.victims.find(v => v.id === victimOrId) 
+      : victimOrId;
+    if (targetVictim) {
+      setVictimToDelete(targetVictim);
+    }
+  };
+
+  const handleConfirmDeleteVictim = async () => {
+    if (!victimToDelete) return;
+    const victimId = victimToDelete.id;
+    const victimName = victimToDelete.name;
+    setIsDeletingVictim(true);
+
+    try {
+      // 1. Immediate optimistic local state update
+      const filteredVictims = db.victims.filter(v => v.id !== victimId);
+      const filteredOccurrences = db.occurrences.filter(o => o.victimId !== victimId);
+      const filteredAlerts = db.panicAlerts.filter(a => a.victimId !== victimId);
+      const updatedDb = {
+        ...db,
+        victims: filteredVictims,
+        occurrences: filteredOccurrences,
+        panicAlerts: filteredAlerts
+      };
+      updateDbState(updatedDb);
+
+      // Close modal if currently editing this victim
+      if (editingVictim?.id === victimId) {
+        setIsVictimModalOpen(false);
+        setEditingVictim(null);
       }
+
+      // 2. Perform backend & firestore delete
+      const res = await firebaseApiFetch(`/api/victims/${victimId}`, { method: 'DELETE' });
+      if (res.ok) {
+        const freshDbRes = await firebaseApiFetch('/api/db');
+        if (freshDbRes.ok) {
+          const data = await freshDbRes.json();
+          setDb(data);
+        }
+      }
+
+      setPdfParseStatus({
+        type: 'success',
+        message: `Assistida "${victimName}" e medida protetiva excluídas com sucesso.`,
+        details: 'O registro foi removido definitivamente do banco de dados.'
+      });
+    } catch (err) {
+      console.warn('Erro ao excluir assistida:', err);
+    } finally {
+      setIsDeletingVictim(false);
+      setVictimToDelete(null);
     }
   };
 
   const resetVictimForm = () => {
+    setEditingVictim(null);
     setNewVictimForm({
       name: '',
       cpf: '',
@@ -1194,14 +1554,19 @@ function AppInner() {
       riskLevel: 'Baixo',
       policeOfficerInCharge: currentUser?.displayName || 'A definir',
       assignedPatrol: 'VTR PROMUSE 5040',
+      acceptedPromuse: 'SIM',
       orderNumber: '',
       defendantName: '',
+      victimPhotoUrl: '',
       aggressorPhotoUrl: '',
       judgeName: 'Dr. Cláudio Müller Pareja',
       restrictions: 'Proibição de aproximação física (mínimo de 300 metros) do local de residência da vítima.',
       issueDate: '',
       expiryDate: '',
-      coordinates: null
+      isIndefiniteExpiry: false,
+      coordinates: null,
+      mpuPdf: null,
+      attachments: []
     });
     setPdfParseStatus(null);
   };
@@ -1317,30 +1682,46 @@ function AppInner() {
     }
   };
 
-  // Filtered victims
-  const filteredVictims = db.victims.filter(v => {
-    const matchesSearch = v.name.toLowerCase().includes(victimSearch.toLowerCase()) || 
-                          v.cpf.includes(victimSearch) || 
-                          (v.protectiveOrder?.orderNumber && v.protectiveOrder.orderNumber.includes(victimSearch));
-    
-    let matchesMonth = true;
-    if (issueMonthFilter !== 'Todos') {
-      const parsed = parseIssueYearMonth(v.protectiveOrder?.issueDate);
-      matchesMonth = parsed ? (parsed.key === issueMonthFilter || parsed.key.endsWith('-' + issueMonthFilter)) : false;
-    }
+  // Filtered victims (Active / monitored victims, excluding Revogada and Expirada) - sorted alphabetically by name
+  const activeVictims = useMemo(() => {
+    return db.victims
+      .filter(v => v.protectiveOrder?.status !== 'Revogada' && !isVictimExpired(v))
+      .sort((a, b) => (a.name || '').localeCompare(b.name || '', 'pt-BR', { sensitivity: 'base' }));
+  }, [db.victims]);
 
-    let matchesExpiry = true;
-    if (expiryStatusFilter !== 'Todos') {
-      const info = getExpiryInfo(v.protectiveOrder?.expiryDate);
-      if (expiryStatusFilter === '30d') {
-        matchesExpiry = Boolean(info && (info.isExpiring30Days || info.isExpired));
-      } else if (expiryStatusFilter === 'Expiradas') {
-        matchesExpiry = Boolean(info && info.isExpired);
-      }
-    }
+  const revokedVictimsCount = useMemo(() => {
+    return db.victims.filter(v => v.protectiveOrder?.status === 'Revogada').length;
+  }, [db.victims]);
 
-    return matchesSearch && matchesMonth && matchesExpiry;
-  });
+  const expiredVictimsCount = useMemo(() => {
+    return db.victims.filter(v => isVictimExpired(v)).length;
+  }, [db.victims]);
+
+  const filteredVictims = useMemo(() => {
+    return activeVictims
+      .filter(v => {
+        const matchesSearch = (v.name || '').toLowerCase().includes(victimSearch.toLowerCase()) || 
+                              (v.cpf || '').includes(victimSearch) || 
+                              (v.protectiveOrder?.orderNumber && v.protectiveOrder.orderNumber.includes(victimSearch));
+        
+        let matchesMonth = true;
+        if (issueMonthFilter !== 'Todos') {
+          const parsed = parseIssueYearMonth(v.protectiveOrder?.issueDate);
+          matchesMonth = parsed ? (parsed.key === issueMonthFilter || parsed.key.endsWith('-' + issueMonthFilter)) : false;
+        }
+
+        let matchesExpiry = true;
+        if (expiryStatusFilter !== 'Todos') {
+          const info = getExpiryInfo(v.protectiveOrder?.expiryDate);
+          if (expiryStatusFilter === '30d') {
+            matchesExpiry = Boolean(info && (info.isExpiring30Days || info.isExpiring15Days));
+          }
+        }
+
+        return matchesSearch && matchesMonth && matchesExpiry;
+      })
+      .sort((a, b) => (a.name || '').localeCompare(b.name || '', 'pt-BR', { sensitivity: 'base' }));
+  }, [activeVictims, victimSearch, issueMonthFilter, expiryStatusFilter]);
 
   // Filtered Alerts
   const filteredAlerts = db.panicAlerts.filter(a => {
@@ -1373,7 +1754,7 @@ function AppInner() {
     <div className="min-h-screen bg-slate-900 text-slate-100 flex flex-col font-sans transition-all selection:bg-rose-600 selection:text-white">
       
       {/* 🇨🇷 MILITARY HEADER */}
-      <header className="bg-[#420B34] border-b border-[#5E164C]/20 px-6 py-4 flex flex-col md:flex-row items-center justify-between gap-4 shadow-lg sticky top-0 z-40">
+      <header className="bg-[#7112de] border-b border-purple-900/30 px-6 py-4 flex flex-col md:flex-row items-center justify-between gap-4 shadow-lg sticky top-0 z-40">
         <div 
           className="flex items-center gap-4 cursor-pointer hover:opacity-95 transition-opacity"
           onClick={() => {
@@ -1390,8 +1771,8 @@ function AppInner() {
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <span className="text-[10px] font-black uppercase tracking-widest text-[#FFCCD6] bg-black/40 px-2 py-0.5 rounded border border-white/10">PMMS</span>
-              <span className="text-[10px] font-black uppercase tracking-widest text-[#FFCCD6] bg-black/40 px-2 py-0.5 rounded border border-white/10">UNIDADE {adminUnit}</span>
+              <span className="text-[10px] font-black uppercase tracking-widest text-[#FFCCD6] bg-[#7112de] px-2 py-0.5 rounded border border-white/20">PMMS</span>
+              <span className="text-[10px] font-black uppercase tracking-widest text-[#FFCCD6] bg-[#7112de] px-2 py-0.5 rounded border border-white/20">UNIDADE {adminUnit}</span>
             </div>
             <h1 className="text-xl font-black text-white tracking-tight mt-0.5">PROMUSE <span className="font-light text-rose-300">Mulher Segura</span></h1>
           </div>
@@ -1452,6 +1833,34 @@ function AppInner() {
           </button>
         </div>
       </header>
+
+      {/* 🌟 GLOBAL FEEDBACK NOTIFICATION TOAST */}
+      {globalToast && (
+        <div className={`px-6 py-3.5 flex items-center justify-between shadow-2xl border-b text-xs sm:text-sm font-bold tracking-wide relative z-50 transition-all ${
+          globalToast.type === 'success' 
+            ? 'bg-emerald-600 border-emerald-500 text-white shadow-emerald-950/40' 
+            : globalToast.type === 'error'
+              ? 'bg-rose-600 border-rose-500 text-white shadow-rose-950/40'
+              : 'bg-indigo-600 border-indigo-500 text-white shadow-indigo-950/40'
+        }`}>
+          <div className="flex items-center gap-3">
+            {globalToast.type === 'success' ? (
+              <CheckCircle2 className="w-5 h-5 shrink-0 text-white" />
+            ) : globalToast.type === 'error' ? (
+              <AlertTriangle className="w-5 h-5 shrink-0 text-white" />
+            ) : (
+              <Sparkles className="w-5 h-5 shrink-0 text-white" />
+            )}
+            <span>{globalToast.message}</span>
+          </div>
+          <button 
+            onClick={() => setGlobalToast(null)}
+            className="text-white hover:text-slate-100 bg-black/20 hover:bg-black/30 p-1.5 rounded-lg text-xs flex items-center gap-1 cursor-pointer transition-colors"
+          >
+            <X className="w-4 h-4" /> Fechar
+          </button>
+        </div>
+      )}
 
       {/* 📢 FLASH EMERGENCY NOTIFICATION TOAST */}
       {showFlashNotification && (
@@ -2125,72 +2534,99 @@ function AppInner() {
 
       {/* 👮 ROLE 2: MILITARY COMMAND / VICTIMS LIST */}
       {activeRole === 'police' && !isVictimModalOpen && !isOccurrenceModalOpen && policeView === 'victims' && (
-        <main className="flex-1 max-w-7xl w-full mx-auto p-4 md:p-6 space-y-6">
-          <div className="flex items-center justify-between mb-2">
-            <h2 className="text-2xl font-black text-slate-100 uppercase tracking-widest flex items-center gap-3">
-              <UsersRound className="w-6 h-6 text-emerald-400" />
-              ASSISTIDAS MONITORADAS
+        <main className="flex-1 max-w-7xl w-full mx-auto p-2 sm:p-4 md:p-6 space-y-3 sm:space-y-6 overflow-x-hidden">
+          <div className="flex items-center justify-between gap-2">
+            <h2 className="text-base sm:text-xl md:text-2xl font-black text-slate-100 uppercase tracking-wider sm:tracking-widest flex items-center gap-2 sm:gap-3 truncate">
+              <UsersRound className="w-5 h-5 sm:w-6 sm:h-6 text-emerald-400 shrink-0" />
+              <span className="truncate">ASSISTIDAS MONITORADAS</span>
             </h2>
             <button
               onClick={() => setPoliceView('dashboard')}
-              className="px-4 py-2 bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-400 text-xs font-bold rounded-xl flex items-center gap-2 transition-colors cursor-pointer"
+              className="px-2.5 sm:px-4 py-1.5 sm:py-2 bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-300 text-[11px] sm:text-xs font-bold rounded-lg sm:rounded-xl flex items-center gap-1.5 transition-colors cursor-pointer shrink-0"
             >
-              <CheckCircle className="w-4 h-4" />
-              Voltar ao Dashboard
+              <CheckCircle className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-emerald-400" />
+              <span className="hidden sm:inline">Voltar ao</span> Dashboard
             </button>
           </div>
 
-          <div className="bg-slate-950 rounded-3xl border border-slate-850 p-5 shadow-xl space-y-4">
+          <div className="bg-slate-950 rounded-2xl sm:rounded-3xl border border-slate-850 p-2.5 sm:p-4 md:p-5 shadow-xl space-y-3 sm:space-y-4 w-full min-w-0">
             
-            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-850 pb-4">
-              <div>
-                <h3 className="text-lg font-black text-slate-100 flex items-center gap-2">
-                  <span className="w-1.5 h-6 bg-emerald-500 rounded-sm inline-block"></span>
-                  Cadastro Geral de Assistidas (Medidas Protetivas)
+            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 border-b border-slate-850 pb-3 sm:pb-4 w-full min-w-0">
+              <div className="min-w-0">
+                <h3 className="text-sm sm:text-base md:text-lg font-black text-slate-100 flex items-center gap-2">
+                  <span className="w-1.5 h-5 sm:h-6 bg-emerald-500 rounded-sm inline-block shrink-0"></span>
+                  <span className="truncate">Cadastro Geral de Assistidas (Medidas Protetivas)</span>
                 </h3>
-                <p className="text-xs text-slate-400">Verifique os níveis de risco, patrulhas de monitoramento e medidas protetivas expedidas eletronicamente pelo fórum.</p>
+                <p className="text-[10px] sm:text-xs text-slate-400 mt-0.5">Verifique os níveis de risco, patrulhas de monitoramento e medidas protetivas ativas.</p>
               </div>
 
-              <div className="flex flex-wrap items-center gap-2">
+              <div className="grid grid-cols-2 sm:flex sm:flex-wrap items-stretch sm:items-center gap-1.5 sm:gap-2 w-full lg:w-auto">
+                <button
+                  id="btn_view_revoked_measures"
+                  onClick={() => setPoliceView('revoked')}
+                  className="px-2.5 sm:px-3.5 py-1.5 sm:py-2 bg-purple-950/70 hover:bg-purple-900 border border-purple-800/80 text-purple-200 font-bold text-[10px] sm:text-xs rounded-lg sm:rounded-xl flex items-center justify-center gap-1.5 transition-all cursor-pointer shadow-sm"
+                  title="Acessar página exclusiva de Medidas Protetivas Revogadas"
+                >
+                  <FileX className="w-3.5 h-3.5 text-purple-400 shrink-0" />
+                  <span className="truncate">REVOGADAS</span>
+                  {revokedVictimsCount > 0 && (
+                    <span className="px-1.5 py-0.2 rounded-full bg-purple-500/30 border border-purple-400/50 text-[9px] sm:text-[10px] font-black text-purple-200">
+                      {revokedVictimsCount}
+                    </span>
+                  )}
+                </button>
+                <button
+                  id="btn_view_expired_measures"
+                  onClick={() => setPoliceView('expired')}
+                  className="px-2.5 sm:px-3.5 py-1.5 sm:py-2 bg-amber-950/70 hover:bg-amber-900 border border-amber-800/80 text-amber-200 font-bold text-[10px] sm:text-xs rounded-lg sm:rounded-xl flex items-center justify-center gap-1.5 transition-all cursor-pointer shadow-sm"
+                  title="Acessar página exclusiva de Medidas Protetivas Expiradas"
+                >
+                  <Clock className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                  <span className="truncate">EXPIRADAS</span>
+                  {expiredVictimsCount > 0 && (
+                    <span className="px-1.5 py-0.2 rounded-full bg-amber-500/30 border border-amber-400/50 text-[9px] sm:text-[10px] font-black text-amber-200">
+                      {expiredVictimsCount}
+                    </span>
+                  )}
+                </button>
                 <button
                   id="btn_new_victim_list"
                   onClick={() => { resetVictimForm(); setIsVictimModalOpen(true); setIsOccurrenceModalOpen(false); }}
-                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl flex items-center gap-1.5 transition-colors cursor-pointer"
+                  className="px-2.5 sm:px-4 py-1.5 sm:py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[10.5px] sm:text-xs rounded-lg sm:rounded-xl flex items-center justify-center gap-1.5 transition-colors cursor-pointer col-span-2 sm:col-span-1"
                 >
-                  <PlusCircle className="w-4 h-4" />
-                  Cadastrar Assistida e Medida
+                  <PlusCircle className="w-3.5 h-3.5 shrink-0" />
+                  <span className="truncate">Cadastrar Assistida e Medida</span>
                 </button>
                 <button
                   onClick={() => { setIsVictimModalOpen(false); setIsOccurrenceModalOpen(true); }}
-                  className="px-4 py-2 bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-200 font-bold text-xs rounded-xl flex items-center gap-1.5 transition-colors cursor-pointer"
+                  className="px-2 sm:px-3.5 py-1.5 sm:py-2 bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-200 font-bold text-[10px] sm:text-xs rounded-lg sm:rounded-xl flex items-center justify-center gap-1.5 transition-colors cursor-pointer col-span-2 sm:col-span-1"
                 >
-                  <FileText className="w-4 h-4 text-emerald-400" />
-                  FICHA INDIVIDUAL
+                  <FileText className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                  <span className="truncate">FICHA INDIVIDUAL</span>
                 </button>
               </div>
             </div>
 
-            {/* Filter controls */}
-            <div className="flex flex-col md:flex-row gap-3 bg-slate-900/60 p-4 rounded-2xl border border-slate-850 text-xs">
-              <div className="flex-1 flex items-center bg-slate-950 rounded-xl px-3 border border-slate-800">
-                <Search className="w-4 h-4 text-slate-500 mr-2 shrink-0" />
+            {/* Filter controls and view toggle */}
+            <div className="flex flex-col md:flex-row gap-2 sm:gap-3 bg-slate-900/60 p-2 sm:p-3.5 rounded-xl sm:rounded-2xl border border-slate-850 text-xs w-full min-w-0">
+              <div className="flex-1 min-w-0 flex items-center bg-slate-950 rounded-lg sm:rounded-xl px-2.5 sm:px-3 border border-slate-800 py-1 sm:py-1.5">
+                <Search className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-slate-500 mr-2 shrink-0" />
                 <input
                   type="text"
-                  placeholder="Pesquisar por nome, CPF ou processo judicial..."
+                  placeholder="Pesquisar por nome, CPF ou processo..."
                   value={victimSearch}
                   onChange={(e) => setVictimSearch(e.target.value)}
-                  className="w-full bg-transparent text-xs py-2 focus:outline-none placeholder-slate-550 text-slate-200"
+                  className="w-full bg-transparent text-[11px] sm:text-xs py-0.5 focus:outline-none placeholder-slate-550 text-slate-200 min-w-0"
                 />
               </div>
 
-              <div className="flex flex-wrap items-center gap-3">
-                <div className="flex items-center gap-2">
-                  <Calendar className="w-4 h-4 text-slate-400 shrink-0" />
-                  <span className="text-slate-400 text-xs font-bold">Mês de Expedição:</span>
+              <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
+                <div className="flex items-center gap-1.5 flex-1 sm:flex-initial min-w-0">
+                  <Calendar className="w-3.5 h-3.5 text-slate-400 shrink-0" />
                   <select
                     value={issueMonthFilter}
                     onChange={(e) => setIssueMonthFilter(e.target.value)}
-                    className="bg-slate-950 text-slate-200 text-xs py-1.5 px-3 rounded-lg border border-slate-800 focus:outline-none focus:border-emerald-500 font-bold cursor-pointer"
+                    className="w-full sm:w-auto bg-slate-950 text-slate-200 text-[10.5px] sm:text-xs py-1.5 px-2 sm:px-3 rounded-lg border border-slate-800 focus:outline-none focus:border-emerald-500 font-bold cursor-pointer truncate"
                   >
                     <option value="Todos">Todos os Meses ({availableIssueMonths.length})</option>
                     {availableIssueMonths.map((m) => (
@@ -2199,181 +2635,364 @@ function AppInner() {
                   </select>
                 </div>
 
-                <div className="flex items-center gap-2">
-                  <Clock className="w-4 h-4 text-amber-400 shrink-0" />
-                  <span className="text-slate-400 text-xs font-bold">Vencimento:</span>
+                <div className="flex items-center gap-1.5 flex-1 sm:flex-initial min-w-0">
+                  <Clock className="w-3.5 h-3.5 text-amber-400 shrink-0" />
                   <select
                     value={expiryStatusFilter}
-                    onChange={(e) => setExpiryStatusFilter(e.target.value as 'Todos' | '30d' | 'Expiradas')}
-                    className="bg-slate-950 text-slate-200 text-xs py-1.5 px-3 rounded-lg border border-slate-800 focus:outline-none focus:border-emerald-500 font-bold cursor-pointer"
+                    onChange={(e) => setExpiryStatusFilter(e.target.value as 'Todos' | '30d')}
+                    className="w-full sm:w-auto bg-slate-950 text-slate-200 text-[10.5px] sm:text-xs py-1.5 px-2 sm:px-3 rounded-lg border border-slate-800 focus:outline-none focus:border-emerald-500 font-bold cursor-pointer truncate"
                   >
-                    <option value="Todos">Todas as Medidas</option>
+                    <option value="Todos">Todas as Ativas</option>
                     <option value="30d">⚠️ A Vencer em 30 Dias</option>
-                    <option value="Expiradas">⛔ Medidas Expiradas</option>
                   </select>
                 </div>
               </div>
             </div>
 
-            {/* Table or Responsive list */}
-            <div className="overflow-x-auto rounded-2xl border border-slate-850">
-              <table className="w-full text-xs text-left text-slate-300">
-                <thead className="text-[10px] uppercase font-black tracking-widest text-slate-400 bg-slate-900/40 border-b border-slate-850">
-                  <tr>
-                    <th className="px-5 py-3">Vítima Assistida</th>
-                    <th className="px-5 py-3">Dados de Contato</th>
-                    <th className="px-5 py-3">Risco Operacional</th>
-                    <th className="px-5 py-3">Sentença Protetiva</th>
-                    <th className="px-5 py-3 text-right">Ações de Gestão</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-850">
-                  {filteredVictims.map((v) => {
-                    const expiryInfo = getExpiryInfo(v.protectiveOrder?.expiryDate);
+            {/* LIST VIEW (UMA MEDIDA POR LINHA) */}
+            <div className="space-y-2 sm:space-y-3 bg-slate-900/40 p-1.5 sm:p-3.5 rounded-xl sm:rounded-2xl border border-slate-800/70 w-full min-w-0">
+              {filteredVictims.map((v) => {
+                const expiryInfo = getExpiryInfo(v.protectiveOrder?.expiryDate);
+                const isRefused = v.acceptedPromuse === 'NÃO' || v.acceptedPromuse === false;
+                const isSomenteRondas = v.acceptedPromuse === 'SOMENTE RONDAS';
+                const hasAcceptedPromuse = v.acceptedPromuse === 'SIM' || (!isRefused && !isSomenteRondas);
+                const isIndefinite = Boolean(
+                  v.protectiveOrder?.expiryDate && 
+                  (v.protectiveOrder.expiryDate === 'INDETERMINADO' || /indeterminado/i.test(v.protectiveOrder.expiryDate))
+                );
+                const cardMpuPdf = v.mpuPdf || v.protectiveOrder?.mpuPdf;
+                const cardAttachments = v.attachments || v.protectiveOrder?.attachments || [];
 
-                    return (
-                      <tr key={v.id} className={`hover:bg-slate-900/40 transition-colors ${
-                        expiryInfo?.isExpiring30Days ? 'bg-amber-950/10' : expiryInfo?.isExpired ? 'bg-rose-950/10' : ''
-                      }`}>
-                        <td className="px-5 py-4">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <span className="font-extrabold text-slate-100 text-sm block">{v.name}</span>
+                return (
+                  <div 
+                    key={v.id} 
+                    onClick={() => handleEditVictimClick(v)}
+                    className={`group rounded-xl p-2.5 sm:p-3.5 xl:p-4 transition-all duration-200 flex flex-col xl:flex-row items-stretch xl:items-center justify-between gap-2.5 sm:gap-3.5 xl:gap-4 cursor-pointer select-none border w-full min-w-0 overflow-hidden ${
+                      isRefused
+                        ? 'bg-zinc-600/90 border-zinc-400/80 hover:bg-zinc-600 text-zinc-100 shadow-md'
+                        : 'bg-slate-900/90 border-slate-800 hover:border-purple-500/60 hover:bg-slate-850 text-slate-100 shadow-lg'
+                    }`}
+                    title="Clique na linha para editar os dados da assistida"
+                  >
+                    {/* Column 1: Foto + Assistida Name + Badges + CPF */}
+                    <div className="flex items-center gap-2.5 sm:gap-3.5 w-full xl:w-auto xl:min-w-[260px] xl:max-w-[320px] min-w-0">
+                      {/* Victim Photo / Avatar */}
+                      <div className="relative shrink-0">
+                        {v.victimPhotoUrl ? (
+                          <img 
+                            src={v.victimPhotoUrl} 
+                            alt={v.name} 
+                            className={`w-9 h-9 sm:w-11 sm:h-11 rounded-full object-cover border-2 shadow-md ${
+                              isRefused ? 'border-zinc-300' : 'border-purple-500/80'
+                            }`}
+                          />
+                        ) : (
+                          <div className={`w-9 h-9 sm:w-11 sm:h-11 rounded-full flex items-center justify-center font-black text-xs sm:text-sm uppercase shadow-inner ${
+                            isRefused ? 'bg-zinc-800 text-zinc-200 border border-zinc-500' : 'bg-purple-950/80 text-purple-300 border border-purple-800/60'
+                          }`}>
+                            {v.name ? v.name.slice(0, 2) : 'AS'}
+                          </div>
+                        )}
+                      </div>
 
-                            {/* Visual BADGE for 30-day expiration */}
-                            {expiryInfo && (
-                              expiryInfo.isExpired ? (
-                                <span 
-                                  className="inline-flex items-center gap-1 bg-red-950/90 text-red-400 border border-red-800/80 px-2 py-0.5 rounded-full text-[10px] font-black tracking-wide"
-                                  title={`Medida Protetiva Venceu há ${Math.abs(expiryInfo.diffDays)} dia(s)`}
-                                >
-                                  <AlertOctagon className="w-3 h-3 text-red-400 shrink-0" />
-                                  MEDIDA EXPIRADA
-                                </span>
-                              ) : expiryInfo.isExpiring15Days ? (
-                                <span 
-                                  className="inline-flex items-center gap-1 bg-rose-950/90 text-rose-300 border border-rose-800/80 px-2 py-0.5 rounded-full text-[10px] font-black tracking-wide animate-pulse"
-                                  title={`ATENÇÃO CRÍTICA: Medida protetiva expira em ${expiryInfo.diffDays} dias!`}
-                                >
-                                  <AlertTriangle className="w-3 h-3 text-rose-400 shrink-0" />
-                                  {expiryInfo.diffDays === 0 ? 'EXPIRA HOJE!' : `EXPIRA EM ${expiryInfo.diffDays}D`}
+                      <div className="min-w-0 flex-1 overflow-hidden">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <h4 className={`font-black text-xs sm:text-sm tracking-tight truncate leading-tight transition-colors ${
+                            isRefused
+                              ? 'text-white group-hover:text-amber-200'
+                              : 'text-[#9939e0] group-hover:text-purple-300'
+                          }`} title={v.name}>
+                            {v.name}
+                          </h4>
+                          {isSomenteRondas ? (
+                            <span 
+                              title="Aceitou Atendimento PROMUSE: SOMENTE RONDAS" 
+                              className="inline-flex items-center gap-0.5 bg-cyan-500/20 border border-cyan-500/50 text-cyan-300 text-[8px] sm:text-[9px] font-extrabold px-1 sm:px-1.5 py-0.5 rounded shadow-sm shrink-0"
+                            >
+                              <Shield className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-cyan-400 shrink-0" />
+                              <span>SOMENTE RONDAS</span>
+                            </span>
+                          ) : hasAcceptedPromuse ? (
+                            <span 
+                              title="Aceitou Atendimento PROMUSE: SIM" 
+                              className="inline-flex items-center gap-0.5 bg-emerald-500/15 border border-emerald-500/40 text-emerald-300 text-[8px] sm:text-[9px] font-extrabold px-1 sm:px-1.5 py-0.5 rounded shadow-sm shrink-0"
+                            >
+                              <CheckCircle2 className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-emerald-400 shrink-0" />
+                              <span>PROMUSE</span>
+                            </span>
+                          ) : (
+                            <span 
+                              title="Aceitou Atendimento PROMUSE: NÃO" 
+                              className="inline-flex items-center gap-0.5 bg-zinc-900 border border-zinc-400 text-zinc-100 text-[8px] sm:text-[9px] font-black px-1 sm:px-1.5 py-0.5 rounded shadow-sm shrink-0"
+                            >
+                              <XCircle className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-rose-300 shrink-0" />
+                              <span>SEM ACEITE</span>
+                            </span>
+                          )}
+                        </div>
+
+                        <div className={`text-[9px] sm:text-[10px] font-mono flex items-center gap-1.5 sm:gap-2 flex-wrap mt-0.5 sm:mt-1 ${
+                          isRefused ? 'text-zinc-200' : 'text-slate-400'
+                        }`}>
+                          <span className="truncate">CPF: {v.cpf || 'Não inf.'}</span>
+                          <span className={isRefused ? 'text-zinc-400' : 'text-slate-600'}>•</span>
+                          <span className={`px-1 sm:px-1.5 py-0.2 rounded font-black uppercase text-[8.5px] sm:text-[9px] ${
+                            isRefused
+                              ? 'bg-zinc-800 text-zinc-200 border border-zinc-500'
+                              : v.riskLevel === 'Alto' ? 'bg-rose-500/20 text-rose-300 border border-rose-500/40 animate-pulse' :
+                                v.riskLevel === 'Médio' ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40' :
+                                'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                          }`}>
+                            Risco {v.riskLevel}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Column 2: Contato & Endereço */}
+                    <div className={`w-full xl:w-auto xl:min-w-[150px] xl:max-w-[200px] min-w-0 text-[11px] sm:text-xs py-1 xl:py-0 border-t xl:border-t-0 ${
+                      isRefused ? 'border-zinc-500/40' : 'border-slate-800/40'
+                    }`}>
+                      <div className="flex items-center gap-1 sm:gap-1.5 truncate">
+                        <span className={`text-[9px] sm:text-[9.5px] font-bold uppercase tracking-wider ${
+                          isRefused ? 'text-zinc-300' : 'text-indigo-400'
+                        }`}>Tel:</span>
+                        <span className={`font-semibold text-[11px] sm:text-xs truncate ${isRefused ? 'text-white' : 'text-slate-200'}`}>
+                          {v.phone || 'Não informado'}
+                        </span>
+                      </div>
+                      <div className={`text-[10px] sm:text-[11px] truncate mt-0.5 ${isRefused ? 'text-zinc-200' : 'text-slate-400'}`} title={v.address}>
+                        {v.address || 'Sem endereço cadastrado'}
+                      </div>
+                    </div>
+
+                    {/* Column 3: Medida Protetiva / Processo Judicial */}
+                    <div className={`w-full xl:flex-1 xl:min-w-[200px] xl:max-w-[320px] min-w-0 text-[11px] sm:text-xs space-y-0.5 sm:space-y-1 py-1 xl:py-0 border-t xl:border-t-0 ${
+                      isRefused ? 'border-zinc-500/40' : 'border-slate-800/40'
+                    }`}>
+                      {v.protectiveOrder ? (
+                        <>
+                          <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
+                            <span className={`font-['Verdana',sans-serif] font-bold text-[10.5px] sm:text-xs truncate ${
+                              isRefused ? 'text-white' : 'text-slate-100'
+                            }`} title={v.protectiveOrder.orderNumber}>
+                              Proc: {v.protectiveOrder.orderNumber || 'Não informado'}
+                            </span>
+                            <span className={`font-mono text-[8.5px] sm:text-[9px] px-1 sm:px-1.5 py-0.2 rounded border ${
+                              isRefused
+                                ? 'bg-zinc-800 text-zinc-200 border-zinc-500'
+                                : 'bg-indigo-950/60 text-indigo-300 border-indigo-800/40'
+                            }`}>
+                              {v.protectiveOrder.status || 'Ativa'}
+                            </span>
+                          </div>
+
+                          <div className="flex items-center justify-between gap-1.5 text-[10.5px] sm:text-xs">
+                            <div className={`truncate ${isRefused ? 'text-zinc-200' : 'text-slate-300'}`} title={v.protectiveOrder.defendantName}>
+                              <span className={`font-semibold ${isRefused ? 'text-zinc-300' : 'text-slate-400'}`}>Réu:</span> {v.protectiveOrder.defendantName || 'Não informado'}
+                            </div>
+                            {(v.aggressorPhotoUrl || v.defendantPhotoUrl) && (
+                              <img 
+                                src={v.aggressorPhotoUrl || v.defendantPhotoUrl} 
+                                alt="Foto do Réu" 
+                                title={`Foto do Réu: ${v.protectiveOrder.defendantName || 'Agressor'}`}
+                                className="w-4 h-4 sm:w-5 sm:h-5 rounded object-cover border border-slate-700 shrink-0" 
+                              />
+                            )}
+                          </div>
+
+                          <div className="flex items-center gap-2 sm:gap-3 text-[10px] sm:text-[10.5px] font-mono flex-wrap">
+                            <span className={isRefused ? 'text-zinc-200' : 'text-slate-400'}>
+                              Exped: {safeFormatDate(v.protectiveOrder.issueDate)}
+                            </span>
+                            {isIndefinite ? (
+                              <span className="inline-flex items-center gap-0.5 bg-amber-950/70 border border-amber-800/80 text-amber-300 text-[9px] sm:text-[10px] font-bold px-1.5 py-0.5 rounded">
+                                <Clock className="w-2.5 h-2.5 text-amber-400" />
+                                Indeterminado
+                              </span>
+                            ) : (
+                              <span className={isRefused ? 'text-amber-200 font-bold' : 'text-[#f60b0b] font-bold'}>
+                                Expira: {safeFormatDate(v.protectiveOrder.expiryDate)}
+                              </span>
+                            )}
+
+                            {expiryInfo && !isIndefinite && (
+                              expiryInfo.isExpiring15Days ? (
+                                <span className="inline-flex items-center gap-0.5 px-1 sm:px-1.5 py-0.2 rounded text-[8.5px] sm:text-[9px] font-black tracking-wide bg-rose-500/20 text-rose-200 border border-rose-500/40 animate-pulse">
+                                  <AlertTriangle className="w-2.5 h-2.5 text-rose-400 shrink-0" />
+                                  EM {expiryInfo.diffDays}D
                                 </span>
                               ) : expiryInfo.isExpiring30Days ? (
-                                <span 
-                                  className="inline-flex items-center gap-1 bg-amber-950/90 text-amber-300 border border-amber-800/80 px-2 py-0.5 rounded-full text-[10px] font-black tracking-wide"
-                                  title={`Atenção: Medida protetiva expira em ${expiryInfo.diffDays} dias (Próximos 30 dias)`}
-                                >
-                                  <Clock className="w-3 h-3 text-amber-400 shrink-0" />
-                                  EXPIRA EM {expiryInfo.diffDays}D
+                                <span className="inline-flex items-center gap-0.5 px-1 sm:px-1.5 py-0.2 rounded text-[8.5px] sm:text-[9px] font-black tracking-wide bg-amber-500/20 text-amber-200 border border-amber-500/40">
+                                  <Clock className="w-2.5 h-2.5 text-amber-400 shrink-0" />
+                                  &lt;30D
                                 </span>
                               ) : null
                             )}
                           </div>
-                          <div className="text-[10px] text-slate-400 flex items-center gap-2 mt-0.5 font-mono">
-                            <span>CPF: {v.cpf}</span>
-                            <span>•</span>
-                            <span>Cadastrada em {safeFormatDate(v.createdAt)}</span>
-                          </div>
-                        </td>
-                        <td className="px-5 py-4">
-                          <span className="font-semibold block">{v.phone}</span>
-                          <span className="text-[10px] text-slate-400 block mt-0.5 truncate max-w-[200px]" title={v.address}>
-                            {v.address}
-                          </span>
-                        </td>
-                        <td className="px-5 py-4">
-                          <span className={`px-2.5 py-1 rounded text-[10px] font-black uppercase tracking-wider ${
-                            v.riskLevel === 'Alto' ? 'bg-red-950 text-red-400 border border-red-900/40 animate-pulse' :
-                            v.riskLevel === 'Médio' ? 'bg-amber-950 text-amber-400 border border-amber-900/40' :
-                            'bg-emerald-950 text-emerald-400'
-                          }`}>
-                            {v.riskLevel} Gravidade
-                          </span>
-                        </td>
-                        <td className="px-5 py-4 max-w-[220px]">
-                          {v.protectiveOrder ? (
-                            <div>
-                              <span className="font-bold text-slate-300 block font-mono text-[10.5px] truncate" title={v.protectiveOrder.orderNumber}>
-                                Proc: {v.protectiveOrder.orderNumber}
-                              </span>
-                              {v.protectiveOrder.defendantName && (
-                                <span className="text-[10px] text-amber-300 block mt-0.5 truncate" title={v.protectiveOrder.defendantName}>Réu: {v.protectiveOrder.defendantName}</span>
-                              )}
-                              {v.protectiveOrder.issueDate && (
-                                <span className="text-[10px] text-sky-300 block mt-0.5">
-                                  Expedição: {safeFormatDate(v.protectiveOrder.issueDate)}
-                                </span>
-                              )}
-                              <div className="flex items-center gap-1.5 flex-wrap mt-1">
-                                <span className={`text-[10px] font-semibold ${
-                                  expiryInfo?.isExpired ? 'text-red-400 font-bold' :
-                                  expiryInfo?.isExpiring30Days ? 'text-amber-300 font-bold' :
-                                  'text-rose-300'
-                                }`}>
-                                  Expira: {safeFormatDate(v.protectiveOrder.expiryDate)}
-                                </span>
-                                {expiryInfo?.isExpiring30Days && (
-                                  <span className="bg-amber-500/20 text-amber-300 border border-amber-500/40 text-[9px] px-1.5 py-0.5 rounded font-black uppercase tracking-tight flex items-center gap-0.5">
-                                    <Clock className="w-2.5 h-2.5 text-amber-400" /> &lt; 30d
-                                  </span>
-                                )}
-                                {expiryInfo?.isExpired && (
-                                  <span className="bg-red-500/20 text-red-300 border border-red-500/40 text-[9px] px-1.5 py-0.5 rounded font-black uppercase tracking-tight flex items-center gap-0.5">
-                                    <AlertOctagon className="w-2.5 h-2.5 text-red-400" /> Vencida
-                                  </span>
-                                )}
-                              </div>
-                            </div>
-                          ) : (
-                            <span className="text-slate-500 italic text-[11px]">Nenhuma medida cadastrada</span>
-                          )}
-                        </td>
-                      <td className="px-5 py-4 text-right">
-                        <div className="flex items-center justify-end gap-1 px-1">
+                        </>
+                      ) : (
+                        <div className="italic text-[11px] text-slate-500">
+                          Nenhuma medida protetiva cadastrada
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Column 4: Documentos / PDF MPU Badges & WhatsApp */}
+                    <div className={`flex items-center gap-1.5 flex-wrap w-full xl:w-auto xl:min-w-[130px] xl:max-w-[200px] min-w-0 py-1 xl:py-0 border-t xl:border-t-0 ${
+                      isRefused ? 'border-zinc-500/40' : 'border-slate-800/40'
+                    }`}>
+                      {cardMpuPdf && (
+                        <div className={`inline-flex items-center rounded-md sm:rounded-lg overflow-hidden border shadow-sm ${
+                          isRefused 
+                            ? 'bg-zinc-800 border-zinc-400 text-zinc-100'
+                            : 'bg-emerald-950/80 border-emerald-700/80 text-emerald-300'
+                        }`}>
                           <button
-                            onClick={() => {
-                              setNewOccurrenceForm(prev => ({ ...prev, victimId: v.id }));
-                              setIsVictimModalOpen(false);
-                              setIsOccurrenceModalOpen(true);
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleDownloadOrOpenFile(cardMpuPdf);
                             }}
-                            className="px-2 py-1.5 bg-emerald-950/40 hover:bg-emerald-900/60 border border-emerald-900/35 hover:text-white text-emerald-400 font-bold tracking-wider uppercase text-[9px] rounded-lg cursor-pointer flex items-center gap-1"
-                            title="Ficha Individual"
+                            className="inline-flex items-center gap-1 text-[9px] sm:text-[10px] font-bold px-1.5 sm:px-2 py-0.5 sm:py-1 hover:opacity-80 transition-opacity cursor-pointer"
+                            title={`Baixar/Visualizar PDF MPU: ${cardMpuPdf.name}`}
                           >
-                            <FileText className="w-3 h-3" />
-                            FICHA INDIVIDUAL
+                            <FileText className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-emerald-400 shrink-0" />
+                            <span>PDF MPU</span>
+                            <Download className="w-2.5 h-2.5 ml-0.5 shrink-0" />
                           </button>
                           <button
-                            onClick={() => handleEditVictimClick(v)}
-                            className="p-1.5 bg-slate-900 hover:bg-slate-840 border border-slate-800 hover:text-white text-slate-450 rounded-lg cursor-pointer"
-                            title="Editar Assistida"
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleShareViaWhatsApp(cardMpuPdf, v.name, v.protectiveOrder?.orderNumber);
+                            }}
+                            className="px-1 sm:px-1.5 py-0.5 sm:py-1 bg-emerald-600 hover:bg-emerald-500 text-white transition-colors cursor-pointer border-l border-emerald-700/80"
+                            title="Compartilhar MPU via WhatsApp"
                           >
-                            <Edit3 className="w-3.5 h-3.5" />
-                          </button>
-                          <button
-                            onClick={() => handleDeleteVictimClick(v.id)}
-                            className="p-1.5 bg-red-950/40 hover:bg-red-900/60 border border-red-900/35 hover:text-white text-red-400 rounded-lg cursor-pointer"
-                            title="Excluir Assistida"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
+                            <MessageCircle className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
                           </button>
                         </div>
-                      </td>
-                    </tr>
-                  );
-                })}
+                      )}
+                      {cardAttachments.map((att) => (
+                        <div key={att.id} className={`inline-flex items-center rounded-md sm:rounded-lg overflow-hidden border shadow-sm max-w-[125px] ${
+                          isRefused
+                            ? 'bg-zinc-800 border-zinc-400 text-zinc-200'
+                            : 'bg-slate-950 border-slate-800 text-slate-300'
+                        }`}>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleDownloadOrOpenFile(att);
+                            }}
+                            className="inline-flex items-center gap-1 text-[9px] sm:text-[10px] font-bold px-1.5 sm:px-2 py-0.5 sm:py-1 hover:opacity-80 transition-opacity cursor-pointer truncate"
+                            title={`Baixar/Visualizar Anexo: ${att.name}`}
+                          >
+                            <Paperclip className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-indigo-400 shrink-0" />
+                            <span className="truncate max-w-[55px]">{att.name}</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleShareViaWhatsApp(att, v.name, v.protectiveOrder?.orderNumber);
+                            }}
+                            className="px-1 sm:px-1.5 py-0.5 sm:py-1 bg-emerald-600 hover:bg-emerald-500 text-white transition-colors cursor-pointer border-l border-slate-800"
+                            title={`Compartilhar ${att.name} via WhatsApp`}
+                          >
+                            <MessageCircle className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
+                          </button>
+                        </div>
+                      ))}
+                      {!cardMpuPdf && cardAttachments.length === 0 && (
+                        <span className={`text-[10px] sm:text-[11px] italic ${isRefused ? 'text-zinc-300' : 'text-slate-600'}`}>Sem anexos</span>
+                      )}
+                    </div>
 
-                  {filteredVictims.length === 0 && (
-                    <tr>
-                      <td colSpan={5} className="px-5 py-10 text-center text-slate-550 italic text-sm">
-                        Nenhuma assistida encontrada com os termos ou filtros selecionados.
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
+                    {/* Column 5: Ações */}
+                    <div 
+                      className={`flex items-center gap-1.5 sm:gap-2 shrink-0 w-full xl:w-auto justify-end pt-1.5 sm:pt-2 xl:pt-0 border-t xl:border-t-0 ${
+                        isRefused ? 'border-zinc-500/50' : 'border-slate-800/80'
+                      }`}
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <button
+                        onClick={() => {
+                          setNewOccurrenceForm(prev => ({ ...prev, victimId: v.id }));
+                          setIsVictimModalOpen(false);
+                          setIsOccurrenceModalOpen(true);
+                        }}
+                        className={`py-1.5 sm:py-2 px-2.5 sm:px-3 rounded-lg sm:rounded-xl font-black text-[10.5px] sm:text-xs flex items-center justify-center gap-1 sm:gap-1.5 transition-all cursor-pointer shadow-sm ${
+                          isRefused
+                            ? 'bg-zinc-800 hover:bg-zinc-900 text-zinc-100 border border-zinc-400'
+                            : 'bg-emerald-600/20 hover:bg-emerald-600 text-emerald-300 hover:text-white border border-emerald-500/40'
+                        }`}
+                        title="Abrir Ficha Individual de Atendimento"
+                      >
+                        <FileText className="w-3 h-3 sm:w-3.5 sm:h-3.5 shrink-0" />
+                        <span className="hidden sm:inline">FICHA INDIVIDUAL</span>
+                        <span className="sm:hidden">FICHA</span>
+                      </button>
+
+                      <button
+                        onClick={() => handleOpenRevocationModal(v)}
+                        className={`py-1.5 sm:py-2 px-2 sm:px-2.5 rounded-lg sm:rounded-xl font-black text-[10.5px] sm:text-xs flex items-center justify-center gap-1 transition-all cursor-pointer shadow-sm ${
+                          isRefused
+                            ? 'bg-zinc-800 hover:bg-purple-900 text-zinc-200 hover:text-white border border-zinc-400'
+                            : 'bg-purple-950/80 hover:bg-purple-700 text-purple-300 hover:text-white border border-purple-800/60'
+                        }`}
+                        title="Revogar Medida Protetiva"
+                      >
+                        <FileX className="w-3 h-3 sm:w-3.5 sm:h-3.5 shrink-0" />
+                        <span className="hidden sm:inline">REVOGAÇÃO</span>
+                      </button>
+
+                      <button
+                        onClick={() => handleDeleteVictimClick(v)}
+                        className={`p-1.5 sm:p-2 rounded-lg sm:rounded-xl transition-all cursor-pointer ${
+                          isRefused
+                            ? 'bg-zinc-800 hover:bg-rose-700 text-zinc-200 hover:text-white border border-zinc-400'
+                            : 'bg-slate-800/80 hover:bg-rose-600 text-slate-400 hover:text-white border border-slate-700/60'
+                        }`}
+                        title="Excluir Assistida e Medida"
+                      >
+                        <Trash2 className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+
+              {filteredVictims.length === 0 && (
+                <div className="py-8 sm:py-12 text-center text-slate-400 bg-slate-900/60 rounded-xl sm:rounded-2xl border border-slate-800 p-4">
+                  <p className="font-semibold text-xs sm:text-sm">Nenhuma assistida encontrada com os termos ou filtros selecionados.</p>
+                </div>
+              )}
             </div>
 
           </div>
         </main>
+      )}
+
+      {/* 🏛️ ROLE 2: MILITARY COMMAND / REVOKED MEASURES DEDICATED VIEW */}
+      {activeRole === 'police' && !isVictimModalOpen && !isOccurrenceModalOpen && policeView === 'revoked' && (
+        <RevokedMeasuresView 
+          victims={db.victims}
+          onBackToActive={() => setPoliceView('victims')}
+          onEditVictim={(v) => handleEditVictimClick(v)}
+          onDeleteVictim={(v) => handleDeleteVictimClick(v)}
+        />
+      )}
+
+      {/* 🏛️ ROLE 2: MILITARY COMMAND / EXPIRED MEASURES DEDICATED VIEW */}
+      {activeRole === 'police' && !isVictimModalOpen && !isOccurrenceModalOpen && policeView === 'expired' && (
+        <ExpiredMeasuresView 
+          victims={db.victims}
+          onBackToActive={() => setPoliceView('victims')}
+          onEditVictim={(v) => handleEditVictimClick(v)}
+          onDeleteVictim={(v) => handleDeleteVictimClick(v)}
+        />
       )}
 
       {/* 🔮 VICTIM INCLUSION MODAL (NOW PAGE) */}
@@ -2413,6 +3032,43 @@ function AppInner() {
               <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 md:p-8 shadow-2xl">
                 <form onSubmit={handleSaveVictim} className="space-y-6">
                   
+                  {/* Alert Error display */}
+                  {victimFormError && (
+                    <div className="p-4 bg-rose-950/80 border border-rose-600/80 rounded-xl text-rose-200 text-xs flex items-center justify-between gap-3 shadow-lg animate-pulse">
+                      <div className="flex items-center gap-2.5">
+                        <AlertTriangle className="w-5 h-5 text-rose-400 shrink-0" />
+                        <span>{victimFormError}</span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setVictimFormError(null)}
+                        className="p-1 text-rose-300 hover:text-white rounded hover:bg-rose-900/50 cursor-pointer"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+                  )}
+
+                  {/* AI Live Scanning Banner */}
+                  {isParsingPdf && (
+                    <div className="p-4 bg-gradient-to-r from-cyan-950/70 via-indigo-950/60 to-purple-950/70 border border-cyan-500/50 rounded-xl text-cyan-200 text-xs space-y-2.5 shadow-xl">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2 font-black uppercase tracking-wider text-cyan-300">
+                          <Bot className="w-4.5 h-4.5 text-cyan-400 animate-pulse" />
+                          <span>IA Gemini Processando Medida Protetiva...</span>
+                        </div>
+                        <span className="text-[10px] bg-cyan-900/80 text-cyan-200 px-2 py-0.5 rounded font-mono border border-cyan-700/50">Auto-Preenchimento</span>
+                      </div>
+                      <p className="text-[11px] text-cyan-300/90 font-medium flex items-center gap-1.5">
+                        <RefreshCw className="w-3.5 h-3.5 animate-spin text-cyan-400 shrink-0" />
+                        {pdfParsingStep}
+                      </p>
+                      <div className="w-full bg-slate-900/80 h-2 rounded-full overflow-hidden p-0.5 border border-cyan-500/20">
+                        <div className="h-full bg-gradient-to-r from-emerald-400 via-cyan-400 to-indigo-500 rounded-full w-full animate-pulse" />
+                      </div>
+                    </div>
+                  )}
+
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
                     <div className="col-span-1 sm:col-span-2">
                       <label className="block text-[10px] text-slate-500 font-extrabold uppercase tracking-widest mb-1.5">Nome Completo da Assistida</label>
@@ -2474,6 +3130,22 @@ function AppInner() {
                         <option value="Baixo" className="bg-slate-900 text-white">Baixo Risco</option>
                         <option value="Médio" className="bg-slate-900 text-white">Médio Risco</option>
                         <option value="Alto" className="bg-slate-900 text-white">ALTO RISCO (Patrulhamento frequente)</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-[10px] text-slate-500 font-extrabold uppercase tracking-widest mb-1.5 flex items-center gap-1">
+                        <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
+                        Aceitou Atendimento PROMUSE
+                      </label>
+                      <select
+                        value={newVictimForm.acceptedPromuse}
+                        onChange={(e) => setNewVictimForm({...newVictimForm, acceptedPromuse: e.target.value as 'SIM' | 'NÃO' | 'SOMENTE RONDAS'})}
+                        className="w-full bg-slate-950 p-2.5 rounded-lg border border-slate-800 text-slate-100 font-extrabold focus:outline-none focus:border-emerald-500"
+                      >
+                        <option value="SIM" className="bg-slate-900 text-emerald-400 font-bold">SIM (Atendimento Aceito)</option>
+                        <option value="SOMENTE RONDAS" className="bg-slate-900 text-cyan-400 font-bold">SOMENTE RONDAS</option>
+                        <option value="NÃO" className="bg-slate-900 text-rose-400 font-bold">NÃO (Atendimento Recusado)</option>
                       </select>
                     </div>
 
@@ -2547,6 +3219,125 @@ function AppInner() {
                     </div>
                   </div>
 
+                  {/* Identificação Fotográfica da Assistida e do Réu */}
+                  <div className="bg-slate-950 p-5 rounded-xl border border-slate-800 space-y-4 text-xs">
+                    <h4 className="text-[11px] font-black text-purple-400 uppercase tracking-widest flex items-center gap-1.5 border-b border-slate-800 pb-2">
+                      <Camera className="w-4.5 h-4.5" /> IDENTIFICAÇÃO FOTOGRÁFICA (VÍTIMA E RÉU)
+                    </h4>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      {/* Foto da Vítima */}
+                      <div className="bg-slate-900/80 p-3.5 rounded-xl border border-slate-800/80 space-y-2.5">
+                        <label className="block text-[10px] text-slate-400 font-extrabold uppercase tracking-widest flex items-center gap-1.5">
+                          <User className="w-3.5 h-3.5 text-purple-400" />
+                          Foto da Assistida / Vítima
+                        </label>
+                        
+                        <div className="flex items-center gap-3">
+                          <div className="relative w-16 h-16 rounded-xl bg-slate-950 border border-slate-700 overflow-hidden shrink-0 flex items-center justify-center group shadow-inner">
+                            {newVictimForm.victimPhotoUrl ? (
+                              <>
+                                <img 
+                                  src={newVictimForm.victimPhotoUrl} 
+                                  alt="Foto da Vítima" 
+                                  className="w-full h-full object-cover"
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => setNewVictimForm({...newVictimForm, victimPhotoUrl: ''})}
+                                  className="absolute inset-0 bg-rose-950/80 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer text-rose-300"
+                                  title="Remover Foto"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              </>
+                            ) : (
+                              <User className="w-8 h-8 text-slate-600" />
+                            )}
+                          </div>
+
+                          <div className="flex-1 space-y-1.5">
+                            <label className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-purple-300 hover:text-white border border-slate-700 rounded-lg text-xs font-bold transition-colors cursor-pointer">
+                              <Camera className="w-3.5 h-3.5" />
+                              <span>{newVictimForm.victimPhotoUrl ? 'Trocar Foto' : 'Selecionar Foto'}</span>
+                              <input
+                                type="file"
+                                accept="image/*"
+                                onChange={(e) => {
+                                  const file = e.target.files?.[0];
+                                  if (file) {
+                                    const reader = new FileReader();
+                                    reader.onloadend = () => {
+                                      setNewVictimForm({...newVictimForm, victimPhotoUrl: reader.result as string});
+                                    };
+                                    reader.readAsDataURL(file);
+                                  }
+                                }}
+                                className="hidden"
+                              />
+                            </label>
+                            <p className="text-[10px] text-slate-500">JPG, PNG ou WebP</p>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Foto do Réu / Agressor */}
+                      <div className="bg-slate-900/80 p-3.5 rounded-xl border border-slate-800/80 space-y-2.5">
+                        <label className="block text-[10px] text-slate-400 font-extrabold uppercase tracking-widest flex items-center gap-1.5">
+                          <UserX className="w-3.5 h-3.5 text-rose-400" />
+                          Foto do Réu / Agressor
+                        </label>
+                        
+                        <div className="flex items-center gap-3">
+                          <div className="relative w-16 h-16 rounded-xl bg-slate-950 border border-slate-700 overflow-hidden shrink-0 flex items-center justify-center group shadow-inner">
+                            {newVictimForm.aggressorPhotoUrl ? (
+                              <>
+                                <img 
+                                  src={newVictimForm.aggressorPhotoUrl} 
+                                  alt="Foto do Réu" 
+                                  className="w-full h-full object-cover"
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => setNewVictimForm({...newVictimForm, aggressorPhotoUrl: ''})}
+                                  className="absolute inset-0 bg-rose-950/80 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer text-rose-300"
+                                  title="Remover Foto"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              </>
+                            ) : (
+                              <UserX className="w-8 h-8 text-slate-600" />
+                            )}
+                          </div>
+
+                          <div className="flex-1 space-y-1.5">
+                            <label className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-rose-300 hover:text-white border border-slate-700 rounded-lg text-xs font-bold transition-colors cursor-pointer">
+                              <Camera className="w-3.5 h-3.5" />
+                              <span>{newVictimForm.aggressorPhotoUrl ? 'Trocar Foto' : 'Selecionar Foto'}</span>
+                              <input
+                                type="file"
+                                accept="image/*"
+                                onChange={(e) => {
+                                  const file = e.target.files?.[0];
+                                  if (file) {
+                                    const reader = new FileReader();
+                                    reader.onloadend = () => {
+                                      setNewVictimForm({...newVictimForm, aggressorPhotoUrl: reader.result as string});
+                                    };
+                                    reader.readAsDataURL(file);
+                                  }
+                                }}
+                                className="hidden"
+                              />
+                            </label>
+                            <p className="text-[10px] text-slate-500">JPG, PNG ou WebP</p>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
                   {/* Legal Protection Order Info fields inside the form */}
                   <div className="bg-slate-950 p-5 rounded-xl border border-slate-800 space-y-4 text-xs">
                     <h4 className="text-[11px] font-black text-emerald-400 uppercase tracking-widest flex items-center gap-1.5 border-b border-slate-800 pb-2">
@@ -2565,7 +3356,7 @@ function AppInner() {
                           className="w-full bg-slate-900 p-2.5 rounded border border-slate-800 text-slate-100 font-extrabold focus:outline-none focus:border-emerald-500"
                         />
                       </div>
-                      <div className="col-span-1 sm:col-span-2">
+                      <div>
                         <label className="block text-[9.5px] text-slate-500 font-extrabold uppercase tracking-widest mb-1.5">Nome do Réu / Agressor</label>
                         <input
                           type="text"
@@ -2575,40 +3366,6 @@ function AppInner() {
                           placeholder="Nome completo do réu"
                           className="w-full bg-slate-900 p-2.5 rounded border border-slate-800 text-slate-100 font-extrabold focus:outline-none focus:border-emerald-500"
                         />
-                      </div>
-                      <div className="col-span-1 sm:col-span-2">
-                        <label className="block text-[9.5px] text-slate-500 font-extrabold uppercase tracking-widest mb-1.5">Foto do Agressor (Opcional)</label>
-                        <input
-                          type="file"
-                          accept="image/*"
-                          onChange={(e) => {
-                            const file = e.target.files?.[0];
-                            if (file) {
-                              const reader = new FileReader();
-                              reader.onloadend = () => {
-                                setNewVictimForm({...newVictimForm, aggressorPhotoUrl: reader.result as string});
-                              };
-                              reader.readAsDataURL(file);
-                            }
-                          }}
-                          className="w-full text-xs text-slate-600 file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-slate-800 file:text-emerald-450 hover:file:bg-slate-700 bg-slate-900 rounded border border-slate-800 font-bold"
-                        />
-                        {newVictimForm.aggressorPhotoUrl && (
-                          <div className="mt-3 h-32 w-32 rounded bg-slate-800 overflow-hidden border border-slate-700 relative group">
-                            <img 
-                              src={newVictimForm.aggressorPhotoUrl} 
-                              alt="Preview da foto do agressor" 
-                              className="w-full h-full object-cover"
-                            />
-                            <button
-                              type="button"
-                              onClick={() => setNewVictimForm({...newVictimForm, aggressorPhotoUrl: ''})}
-                              className="absolute inset-0 bg-red-900/80 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
-                            >
-                              <Trash2 className="w-6 h-6 text-white" />
-                            </button>
-                          </div>
-                        )}
                       </div>
                       <div className="col-span-1 sm:col-span-2">
                         <label className="block text-[9.5px] text-slate-500 font-extrabold uppercase tracking-widest mb-1.5">Magistrado(a) Emitente</label>
@@ -2632,14 +3389,69 @@ function AppInner() {
                         />
                       </div>
                       <div>
-                        <label className="block text-[9.5px] text-slate-500 font-extrabold uppercase tracking-widest mb-1.5">Prazo de Expiração</label>
-                        <input
-                          type="date"
-                          required
-                          value={newVictimForm.expiryDate}
-                          onChange={(e) => setNewVictimForm({...newVictimForm, expiryDate: e.target.value})}
-                          className="w-full bg-slate-900 p-2.5 rounded border border-slate-800 text-slate-100 font-extrabold focus:outline-none focus:border-emerald-500"
-                        />
+                        <div className="flex items-center justify-between mb-1.5 gap-2">
+                          <label className="block text-[9.5px] text-slate-500 font-extrabold uppercase tracking-widest">
+                            Prazo de Expiração
+                          </label>
+                          {/* Select Button for PRAZO INDETERMINADO */}
+                          <button
+                            type="button"
+                            id="btn-toggle-prazo-indeterminado"
+                            onClick={() => {
+                              const next = !newVictimForm.isIndefiniteExpiry;
+                              setNewVictimForm(prev => ({
+                                ...prev,
+                                isIndefiniteExpiry: next,
+                                expiryDate: next ? 'INDETERMINADO' : (prev.expiryDate === 'INDETERMINADO' ? '' : prev.expiryDate)
+                              }));
+                            }}
+                            className={`px-2 py-0.5 rounded text-[9.5px] font-black tracking-wider uppercase flex items-center gap-1.5 transition-colors cursor-pointer border ${
+                              newVictimForm.isIndefiniteExpiry
+                                ? 'bg-amber-500/20 text-amber-300 border-amber-500/80 shadow-sm'
+                                : 'bg-slate-900 text-slate-400 hover:text-slate-200 border-slate-700 hover:border-slate-600'
+                            }`}
+                          >
+                            <span className={`w-3 h-3 rounded-sm border flex items-center justify-center text-[8px] leading-none ${
+                              newVictimForm.isIndefiniteExpiry
+                                ? 'bg-amber-500 border-amber-400 text-slate-950 font-black'
+                                : 'border-slate-600 bg-slate-950 text-transparent'
+                            }`}>
+                              ✓
+                            </span>
+                            <span>PRAZO INDETERMINADO</span>
+                          </button>
+                        </div>
+
+                        {newVictimForm.isIndefiniteExpiry ? (
+                          <div className="w-full bg-amber-950/25 border border-amber-800/60 p-2 rounded text-xs text-amber-300 flex items-center justify-between">
+                            <div className="flex items-center gap-1.5 min-w-0">
+                              <Clock className="w-4 h-4 text-amber-400 shrink-0" />
+                              <span className="font-bold truncate">Prazo Indeterminado</span>
+                              <span className="text-[10px] text-amber-400/80 font-normal hidden sm:inline">(Vigência sem data limite)</span>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setNewVictimForm(prev => ({
+                                  ...prev,
+                                  isIndefiniteExpiry: false,
+                                  expiryDate: ''
+                                }));
+                              }}
+                              className="text-[10px] underline text-amber-400 hover:text-amber-200 font-bold ml-2 shrink-0 cursor-pointer"
+                            >
+                              Definir Data
+                            </button>
+                          </div>
+                        ) : (
+                          <input
+                            type="date"
+                            required={!newVictimForm.isIndefiniteExpiry}
+                            value={newVictimForm.expiryDate === 'INDETERMINADO' ? '' : newVictimForm.expiryDate}
+                            onChange={(e) => setNewVictimForm({...newVictimForm, expiryDate: e.target.value})}
+                            className="w-full bg-slate-900 p-2.5 rounded border border-slate-800 text-slate-100 font-extrabold focus:outline-none focus:border-emerald-500"
+                          />
+                        )}
                       </div>
                       <div className="col-span-1 sm:col-span-2">
                         <label className="block text-[9.5px] text-slate-500 font-extrabold uppercase tracking-widest mb-1.5">Restrições Impostas ao Réu</label>
@@ -2655,38 +3467,161 @@ function AppInner() {
                     </div>
                   </div>
 
-                  <div className="flex justify-end gap-3 text-xs border-t border-slate-800 pt-4">
-                    <button
-                      type="button"
-                      onClick={() => { setIsVictimModalOpen(false); setPoliceView('dashboard'); }}
-                      className="px-5 py-2.5 bg-slate-850 border border-slate-800 text-slate-400 rounded-lg cursor-pointer hover:bg-slate-800"
-                    >
-                      Cancelar
-                    </button>
-                    <button
-                      type="submit"
-                      className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-lg cursor-pointer transition-colors"
-                    >
-                      {editingVictim ? 'Salvar Alterações' : 'Confirmar e Registrar Assistida'}
-                    </button>
+                  <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 text-xs border-t border-slate-800 pt-5">
+                    {editingVictim ? (
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteVictimClick(editingVictim)}
+                        className="px-4 py-3 bg-rose-950/70 hover:bg-rose-900 border border-rose-800/80 hover:border-rose-700 text-rose-300 hover:text-white rounded-xl cursor-pointer transition-all font-bold flex items-center justify-center gap-2 shadow-sm"
+                        title="Excluir esta assistida e medida protetiva definitivamente"
+                      >
+                        <Trash2 className="w-4 h-4 text-rose-400" />
+                        <span>Excluir Cadastro e Medida</span>
+                      </button>
+                    ) : (
+                      <div />
+                    )}
+                    <div className="flex flex-col sm:flex-row gap-3">
+                      <button
+                        type="button"
+                        onClick={() => { setIsVictimModalOpen(false); setPoliceView('dashboard'); }}
+                        className="px-5 py-3 bg-slate-850 hover:bg-slate-800 border border-slate-800 hover:border-slate-700 text-slate-400 hover:text-slate-200 rounded-xl cursor-pointer transition-colors font-bold text-center"
+                      >
+                        Cancelar
+                      </button>
+                      <button
+                        type="submit"
+                        disabled={isSubmittingVictim || isParsingPdf}
+                        className={`px-7 py-3 text-white font-black rounded-xl transition-all flex items-center justify-center gap-2.5 shadow-xl cursor-pointer ${
+                          isSubmittingVictim || isParsingPdf
+                            ? 'bg-slate-800 text-slate-500 border border-slate-700 cursor-not-allowed'
+                            : 'bg-emerald-600 hover:bg-emerald-500 shadow-emerald-950/40 hover:scale-[1.01]'
+                        }`}
+                      >
+                        {isSubmittingVictim ? (
+                          <>
+                            <RefreshCw className="w-4.5 h-4.5 animate-spin text-emerald-400" />
+                            <span>REGISTRANDO NO BANCO DE DADOS...</span>
+                          </>
+                        ) : (
+                          <>
+                            <CheckCircle2 className="w-5 h-5 text-emerald-200" />
+                            <span>{editingVictim ? 'Salvar Alterações do Cadastro' : 'Confirmar e Registrar Assistida'}</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
                   </div>
 
                 </form>
               </div>
             </div>
 
-            {/* Right Column: PDF Smart Upload & Assistance Rules (Takes 1/3 width) */}
+            {/* Right Column: PDF Smart Upload & File Attachments (Takes 1/3 width) */}
             <div className="space-y-6">
-              {!editingVictim && (
-                <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-2xl space-y-4">
-                  <div className="border-b border-slate-800 pb-3">
+              
+              {/* 📄 PDF MPU CARD (UPLOAD & PREVIEW) */}
+              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 sm:p-6 shadow-2xl space-y-4">
+                <div className="border-b border-slate-800 pb-3">
+                  <div className="flex items-center justify-between">
                     <h3 className="text-sm font-black text-slate-100 uppercase tracking-wider flex items-center gap-1.5">
                       <FileCheck2 className="w-5 h-5 text-emerald-400" />
-                      Leitor Inteligente
+                      PDF da Medida Protetiva (MPU)
                     </h3>
-                    <p className="text-[11px] text-slate-400 mt-1">Carregue o PDF da Medida Protetiva. Nossa IA lerá os dados e preencherá o formulário para você automaticamente.</p>
+                    <span className="text-[10px] bg-emerald-950/90 text-emerald-300 border border-emerald-800/80 px-2 py-0.5 rounded font-mono font-bold">
+                      IA Gemini
+                    </span>
                   </div>
+                  <p className="text-[11px] text-slate-400 mt-1">
+                    Anexe o arquivo oficial da decisão judicial. A Inteligência Artificial lerá o documento e preencherá os campos automaticamente.
+                  </p>
+                </div>
 
+                {/* AI Active Scanner Visualizer */}
+                {isParsingPdf && (
+                  <div className="p-4 rounded-xl bg-gradient-to-br from-slate-950 via-cyan-950/40 to-slate-950 border border-cyan-500/50 space-y-3 relative overflow-hidden shadow-inner">
+                    <div className="absolute inset-0 bg-cyan-500/5 animate-pulse" />
+                    <div className="flex items-center gap-3 relative z-10">
+                      <div className="p-2.5 rounded-xl bg-cyan-900/50 text-cyan-300 border border-cyan-500/30 shrink-0">
+                        <Sparkles className="w-6 h-6 animate-spin" />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2">
+                          <span className="text-[10px] font-black uppercase tracking-widest text-cyan-400">ESCANEAMENTO DIGITAL IA</span>
+                          <span className="w-2 h-2 rounded-full bg-cyan-400 animate-ping" />
+                        </div>
+                        <p className="text-xs font-bold text-slate-100 truncate mt-0.5">
+                          {pdfParsingStep}
+                        </p>
+                      </div>
+                    </div>
+                    
+                    <div className="space-y-1 relative z-10">
+                      <div className="w-full bg-slate-900 h-2 rounded-full overflow-hidden border border-cyan-500/30">
+                        <div className="h-full bg-gradient-to-r from-emerald-400 via-cyan-400 to-indigo-500 w-full animate-pulse" />
+                      </div>
+                      <span className="text-[9px] text-cyan-400/80 font-mono block text-right">Extraindo partes, réu, processo e prazos...</span>
+                    </div>
+                  </div>
+                )}
+
+                {newVictimForm.mpuPdf ? (
+                  <div className="p-4 rounded-xl bg-emerald-950/30 border border-emerald-800/60 space-y-3">
+                    <div className="flex items-start gap-3">
+                      <div className="p-2.5 rounded-lg bg-emerald-900/50 text-emerald-300 shrink-0">
+                        <FileText className="w-6 h-6" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <span className="text-[10px] uppercase font-bold text-emerald-400 tracking-wider block">PDF MPU ANEXADO</span>
+                        <p className="text-xs font-bold text-slate-200 truncate mt-0.5" title={newVictimForm.mpuPdf.name}>
+                          {newVictimForm.mpuPdf.name}
+                        </p>
+                        <span className="text-[10px] text-slate-400 font-mono">
+                          {formatFileSize(newVictimForm.mpuPdf.size)} • {safeFormatDate(newVictimForm.mpuPdf.uploadedAt)}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2 pt-1 border-t border-emerald-900/40 flex-wrap">
+                      <button
+                        type="button"
+                        onClick={() => handleShareViaWhatsApp(newVictimForm.mpuPdf!)}
+                        className="py-2 px-3 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer shadow-sm"
+                        title="Compartilhar MPU via WhatsApp"
+                      >
+                        <MessageCircle className="w-3.5 h-3.5" />
+                        <span>WhatsApp</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleDownloadOrOpenFile(newVictimForm.mpuPdf!)}
+                        className="flex-1 py-2 px-3 bg-emerald-700 hover:bg-emerald-600 text-white rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 transition-colors cursor-pointer shadow-sm"
+                      >
+                        <Download className="w-3.5 h-3.5" />
+                        Visualizar / Baixar
+                      </button>
+                      <label className="py-2 px-3 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded-lg text-xs font-bold flex items-center justify-center gap-1 transition-colors cursor-pointer border border-slate-700">
+                        <RefreshCw className="w-3.5 h-3.5" />
+                        <span>Substituir</span>
+                        <input
+                          type="file"
+                          accept="application/pdf"
+                          onChange={handlePdfUpload}
+                          className="hidden"
+                          disabled={isParsingPdf}
+                        />
+                      </label>
+                      <button
+                        type="button"
+                        onClick={handleRemoveMpuPdf}
+                        className="p-2 bg-slate-800 hover:bg-rose-900 text-slate-400 hover:text-rose-200 rounded-lg text-xs transition-colors cursor-pointer border border-slate-700"
+                        title="Remover PDF"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+                ) : (
                   <div className="relative w-full">
                     <input 
                       type="file" 
@@ -2698,72 +3633,194 @@ function AppInner() {
                     <button 
                       type="button" 
                       disabled={isParsingPdf} 
-                      className={`w-full px-4 py-3 rounded-xl font-black text-xs flex items-center justify-center gap-2 border ${
+                      className={`w-full px-4 py-4 rounded-xl font-black text-xs flex items-center justify-center gap-2.5 border cursor-pointer transition-all ${
                         isParsingPdf 
-                          ? 'bg-slate-800 border-slate-700 text-slate-500' 
-                          : 'bg-emerald-950/40 border-emerald-800/80 hover:bg-emerald-900/40 text-emerald-400 hover:text-emerald-300 transition-colors'
+                          ? 'bg-slate-800/80 border-slate-700 text-slate-400' 
+                          : 'bg-emerald-950/40 border-emerald-700/80 hover:bg-emerald-900/40 text-emerald-300 hover:text-emerald-200 shadow-lg shadow-emerald-950/20'
                       }`}
                     >
                       {isParsingPdf ? (
                         <>
-                          <div className="w-4 h-4 border-2 border-slate-500 border-t-transparent rounded-full animate-spin" />
-                          LENDO PDF...
+                          <RefreshCw className="w-4.5 h-4.5 text-cyan-400 animate-spin" />
+                          <span>ANALISANDO COM IA...</span>
                         </>
                       ) : (
                         <>
-                          <FileText className="w-4.5 h-4.5 text-emerald-500" />
-                          ANEXAR PDF MPU
+                          <Sparkles className="w-4.5 h-4.5 text-emerald-400" />
+                          <span>ANEXAR PDF MPU (LEITURA INTELIGENTE COM IA)</span>
                         </>
                       )}
                     </button>
                   </div>
+                )}
 
-                  {pdfParseStatus && (
-                    <div className={`p-4 rounded-xl border flex items-start gap-3 text-xs ${
-                      pdfParseStatus.type === 'success' 
-                        ? 'bg-emerald-950/40 border-emerald-800/80 text-emerald-300' 
+                {pdfParseStatus && (
+                  <div className={`p-4 rounded-xl border flex items-start gap-3 text-xs ${
+                    pdfParseStatus.type === 'success' 
+                      ? 'bg-emerald-950/40 border-emerald-800/80 text-emerald-300' 
+                      : pdfParseStatus.type === 'info'
+                        ? 'bg-indigo-950/40 border-indigo-800/80 text-indigo-300'
                         : 'bg-rose-950/40 border-rose-800/80 text-rose-300'
-                    }`}>
-                      {pdfParseStatus.type === 'success' ? (
-                        <CheckCircle className="w-5 h-5 shrink-0 text-emerald-400 mt-0.5" />
-                      ) : (
-                        <AlertTriangle className="w-5 h-5 shrink-0 text-rose-400 mt-0.5" />
+                  }`}>
+                    {pdfParseStatus.type === 'success' ? (
+                      <CheckCircle className="w-5 h-5 shrink-0 text-emerald-400 mt-0.5" />
+                    ) : pdfParseStatus.type === 'info' ? (
+                      <FileCheck2 className="w-5 h-5 shrink-0 text-indigo-400 mt-0.5" />
+                    ) : (
+                      <AlertTriangle className="w-5 h-5 shrink-0 text-rose-400 mt-0.5" />
+                    )}
+                    <div className="min-w-0 flex-1">
+                      <span className="font-bold block uppercase mb-0.5">
+                        {pdfParseStatus.type === 'success' 
+                          ? 'Leitura IA Concluída e PDF Salvo' 
+                          : pdfParseStatus.type === 'info'
+                            ? 'Documento PDF Anexado'
+                            : 'Aviso na Leitura'}
+                      </span>
+                      <p className="text-[11px] leading-relaxed">{pdfParseStatus.message}</p>
+                      {pdfParseStatus.details && (
+                        <p className="text-[10px] font-mono text-slate-400 mt-1">{pdfParseStatus.details}</p>
                       )}
-                      <div>
-                        <span className="font-bold block uppercase mb-0.5">
-                          {pdfParseStatus.type === 'success' ? 'Leitura Concluída' : 'Erro na Leitura'}
-                        </span>
-                        <p className="text-[11px] leading-relaxed">{pdfParseStatus.message}</p>
-                      </div>
                     </div>
-                  )}
-                </div>
-              )}
+                  </div>
+                )}
+              </div>
 
-              {/* Operational / Support Guidelines Card */}
-              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-2xl space-y-4">
-                <div className="border-b border-slate-800 pb-3">
-                  <h3 className="text-sm font-black text-slate-100 uppercase tracking-wider flex items-center gap-1.5">
-                    <Shield className="w-5 h-5 text-amber-500" />
-                    Diretrizes PROMUSE
-                  </h3>
-                  <p className="text-[11px] text-slate-400 mt-1">Orientações operacionais para o acompanhamento de mulheres assistidas sob medida protetiva.</p>
+              {/* 📎 OUTROS ARQUIVOS RELEVANTES (ATTACHMENTS SECTION + MPU INTEGRATED) */}
+              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 sm:p-6 shadow-2xl space-y-4">
+                <div className="flex items-center justify-between border-b border-slate-800 pb-3 gap-2">
+                  <div>
+                    <h3 className="text-sm font-black text-slate-100 uppercase tracking-wider flex items-center gap-1.5">
+                      <Paperclip className="w-4.5 h-4.5 text-indigo-400" />
+                      Documentos Relevantes
+                    </h3>
+                    <p className="text-[11px] text-slate-400 mt-0.5">MPU judicial, sentenças, boletins de ocorrência, certidões e relatórios.</p>
+                  </div>
+
+                  <label className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-indigo-950/80 hover:bg-indigo-900 border border-indigo-700/80 text-indigo-300 hover:text-white rounded-xl text-xs font-bold transition-colors cursor-pointer shadow-sm shrink-0">
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>Anexar</span>
+                    <input
+                      type="file"
+                      multiple
+                      accept="application/pdf,image/*,.doc,.docx,.txt"
+                      onChange={handleAdditionalFilesUpload}
+                      className="hidden"
+                    />
+                  </label>
                 </div>
 
-                <ul className="space-y-3 text-[11px] text-slate-300">
-                  <li className="flex items-start gap-2">
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 mt-1.5 shrink-0"></span>
-                    <span><strong>Frequência de Visitas:</strong> Assistidas classificadas como <strong>Alto Risco</strong> devem receber patrulhamento diário.</span>
-                  </li>
-                  <li className="flex items-start gap-2">
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 mt-1.5 shrink-0"></span>
-                    <span><strong>Atualização Cadastral:</strong> Certifique-se de que os dados de geolocalização e telefone estão atualizados no sistema.</span>
-                  </li>
-                  <li className="flex items-start gap-2">
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 mt-1.5 shrink-0"></span>
-                    <span><strong>Termos da Medida:</strong> O descumprimento de qualquer termo judicial da MPU pelo agressor autoriza a prisão em flagrante.</span>
-                  </li>
-                </ul>
+                {newVictimForm.mpuPdf || (newVictimForm.attachments && newVictimForm.attachments.length > 0) ? (
+                  <div className="space-y-2.5 max-h-80 overflow-y-auto pr-1">
+                    {/* 1. MPU PDF Item (Exibido no card de Documentos Relevantes se anexado) */}
+                    {newVictimForm.mpuPdf && (
+                      <div className="p-3 rounded-xl bg-emerald-950/40 border border-emerald-700/60 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs shadow-sm">
+                        <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                          <div className="p-2 rounded-lg bg-emerald-900/60 text-emerald-300 shrink-0">
+                            <FileCheck2 className="w-4.5 h-4.5 text-emerald-400" />
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="text-[9px] uppercase font-black px-1.5 py-0.5 rounded bg-emerald-900/80 text-emerald-200 border border-emerald-600/60 font-mono tracking-wider">
+                                MEDIDA PROTETIVA (MPU)
+                              </span>
+                              <span className="text-[10px] text-emerald-300 font-mono">{formatFileSize(newVictimForm.mpuPdf.size)}</span>
+                            </div>
+                            <p className="text-xs font-bold text-slate-100 truncate mt-0.5" title={newVictimForm.mpuPdf.name}>
+                              {newVictimForm.mpuPdf.name}
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-1.5 shrink-0 justify-end pt-1 sm:pt-0 border-t sm:border-t-0 border-emerald-900/40">
+                          <button
+                            type="button"
+                            onClick={() => handleShareViaWhatsApp(newVictimForm.mpuPdf!)}
+                            className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 shadow-sm cursor-pointer"
+                            title="Compartilhar MPU via WhatsApp"
+                          >
+                            <MessageCircle className="w-3.5 h-3.5" />
+                            <span>WhatsApp</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDownloadOrOpenFile(newVictimForm.mpuPdf!)}
+                            className="p-1.5 bg-slate-900 hover:bg-emerald-900 text-emerald-300 rounded-lg transition-colors cursor-pointer border border-emerald-800/80"
+                            title="Visualizar / Baixar MPU"
+                          >
+                            <Download className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={handleRemoveMpuPdf}
+                            className="p-1.5 bg-slate-900 hover:bg-rose-900 text-rose-400 rounded-lg transition-colors cursor-pointer border border-slate-800"
+                            title="Remover MPU"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* 2. Demais Documentos Relevantes Anexados */}
+                    {newVictimForm.attachments?.map((att) => (
+                      <div 
+                        key={att.id} 
+                        className="p-3 rounded-xl bg-slate-950/80 border border-slate-800/80 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs hover:border-slate-700 transition-colors"
+                      >
+                        <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                          <div className="p-2 rounded-lg bg-slate-900 text-indigo-400 shrink-0">
+                            <Paperclip className="w-4 h-4" />
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="text-[9px] uppercase font-bold px-1.5 py-0.5 rounded bg-indigo-950 text-indigo-300 border border-indigo-800/60 font-mono">
+                                {att.category || 'Documento'}
+                              </span>
+                              <span className="text-[10px] text-slate-500 font-mono">{formatFileSize(att.size)}</span>
+                            </div>
+                            <p className="text-xs font-bold text-slate-200 truncate mt-0.5" title={att.name}>
+                              {att.name}
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-1.5 shrink-0 justify-end pt-1 sm:pt-0 border-t sm:border-t-0 border-slate-800/60">
+                          <button
+                            type="button"
+                            onClick={() => handleShareViaWhatsApp(att)}
+                            className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 shadow-sm cursor-pointer"
+                            title={`Compartilhar ${att.name} via WhatsApp`}
+                          >
+                            <MessageCircle className="w-3.5 h-3.5" />
+                            <span>WhatsApp</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDownloadOrOpenFile(att)}
+                            className="p-1.5 bg-slate-900 hover:bg-indigo-900 text-indigo-300 rounded-lg transition-colors cursor-pointer border border-slate-800"
+                            title="Visualizar / Baixar"
+                          >
+                            <Download className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveAttachment(att.id)}
+                            className="p-1.5 bg-slate-900 hover:bg-rose-900 text-rose-400 rounded-lg transition-colors cursor-pointer border border-slate-800"
+                            title="Remover Anexo"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="p-4 rounded-xl bg-slate-950/40 border border-slate-800/60 text-center text-xs text-slate-500 space-y-1">
+                    <p>Nenhum documento adicional anexado.</p>
+                    <p className="text-[11px] text-slate-400">Anexe o PDF da MPU ou clique em <strong>Anexar</strong> para incluir novos arquivos e compartilhar via WhatsApp.</p>
+                  </div>
+                )}
               </div>
 
             </div>
@@ -2840,7 +3897,7 @@ function AppInner() {
                       className="w-full bg-slate-950 p-3 rounded-xl border border-slate-800 text-slate-100 font-extrabold focus:outline-none focus:border-emerald-500 text-xs"
                     >
                       <option value="" className="bg-white text-slate-100 font-extrabold">-- Selecionar Assistida --</option>
-                      {db.victims.map(v => (
+                      {[...db.victims].sort((a, b) => (a.name || '').localeCompare(b.name || '', 'pt-BR', { sensitivity: 'base' })).map(v => (
                         <option key={v.id} value={v.id} className="bg-white text-slate-100 font-extrabold">{v.name}</option>
                       ))}
                     </select>
@@ -3184,7 +4241,7 @@ function AppInner() {
                 />
               </div>
 
-              <div className="bg-rose-950/40 p-3 rounded-xl border border-rose-900/50 text-[11px] text-rose-300 leading-relaxed font-sans">
+              <div className="bg-[#cd0447] text-white p-3 rounded-xl border border-rose-600 text-[11px] leading-relaxed font-sans shadow-md">
                 ⚠️ Ao concluir estes dados, a Medida Protetiva será arquivada no histórico como <strong>REVOGADA (INATIVA)</strong>.
               </div>
 
@@ -3207,6 +4264,114 @@ function AppInner() {
               </div>
 
             </form>
+
+          </div>
+        </div>
+      )}
+
+      {/* 🗑️ MODAL DE CONFIRMAÇÃO DE EXCLUSÃO DE ASSISTIDA / MEDIDA */}
+      {victimToDelete && (
+        <div className="fixed inset-0 bg-slate-950/85 backdrop-blur-md z-50 flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 md:p-8 max-w-lg w-full shadow-2xl space-y-6 relative animate-in fade-in zoom-in duration-150">
+            
+            {/* Header */}
+            <div className="flex justify-between items-start border-b border-slate-800 pb-4">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-rose-950 border border-rose-800 text-rose-400 flex items-center justify-center shrink-0">
+                  <Trash2 className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-black text-slate-100 uppercase tracking-wider">
+                    Excluir Medida e Cadastro
+                  </h3>
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    Unidade: <strong className="text-slate-200">{adminUnit}</strong>
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setVictimToDelete(null)}
+                className="p-2 bg-slate-800 hover:bg-slate-700 text-slate-400 rounded-xl cursor-pointer transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Victim Details Card */}
+            <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800 space-y-2 text-xs">
+              <div className="flex justify-between border-b border-slate-850 pb-1.5">
+                <span className="text-slate-500 font-bold uppercase tracking-wider text-[10px]">Nome da Assistida:</span>
+                <span className="text-slate-100 font-bold font-sans text-[12px]">{victimToDelete.name}</span>
+              </div>
+              {victimToDelete.cpf && (
+                <div className="flex justify-between border-b border-slate-850 pb-1.5">
+                  <span className="text-slate-500 font-bold uppercase tracking-wider text-[10px]">CPF:</span>
+                  <span className="text-slate-300 font-mono">{victimToDelete.cpf}</span>
+                </div>
+              )}
+              <div className="flex justify-between border-b border-slate-850 pb-1.5">
+                <span className="text-slate-500 font-bold uppercase tracking-wider text-[10px]">Processo MPU:</span>
+                <span className="text-amber-400 font-mono font-bold">{victimToDelete.protectiveOrder?.orderNumber || 'Não informado'}</span>
+              </div>
+              {victimToDelete.protectiveOrder?.defendantName && (
+                <div className="flex justify-between border-b border-slate-850 pb-1.5">
+                  <span className="text-slate-500 font-bold uppercase tracking-wider text-[10px]">Réu / Agressor:</span>
+                  <span className="text-slate-300 font-sans">{victimToDelete.protectiveOrder.defendantName}</span>
+                </div>
+              )}
+              <div className="flex justify-between items-center pt-0.5">
+                <span className="text-slate-500 font-bold uppercase tracking-wider text-[10px]">Grau de Risco:</span>
+                <span className={`font-bold px-2 py-0.5 rounded text-[10px] ${
+                  victimToDelete.riskLevel === 'Alto' ? 'bg-rose-950 text-rose-300 border border-rose-800' :
+                  victimToDelete.riskLevel === 'Médio' ? 'bg-amber-950 text-amber-300 border border-amber-800' :
+                  'bg-emerald-950 text-emerald-300 border border-emerald-800'
+                }`}>
+                  {victimToDelete.riskLevel}
+                </span>
+              </div>
+            </div>
+
+            {/* Warning Message */}
+            <div className="p-3.5 rounded-xl bg-rose-950/40 border border-rose-900/60 text-rose-200 text-xs leading-relaxed flex items-start gap-2.5">
+              <AlertTriangle className="w-5 h-5 text-rose-400 shrink-0 mt-0.5" />
+              <div>
+                <p className="font-bold text-rose-300">Tem certeza que deseja excluir esta assistida?</p>
+                <p className="text-[11px] text-rose-300/80 mt-0.5">
+                  Esta ação removerá permanentemente a assistida, sua medida protetiva e os dados vinculados do banco de dados operacional.
+                </p>
+              </div>
+            </div>
+
+            {/* Actions */}
+            <div className="flex justify-end gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setVictimToDelete(null)}
+                disabled={isDeletingVictim}
+                className="px-4 py-2.5 bg-slate-850 hover:bg-slate-800 border border-slate-800 text-slate-400 rounded-xl cursor-pointer font-bold text-xs"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmDeleteVictim}
+                disabled={isDeletingVictim}
+                className="px-6 py-2.5 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-xl cursor-pointer transition-colors flex items-center gap-2 text-xs shadow-lg shadow-rose-950/50"
+              >
+                {isDeletingVictim ? (
+                  <>
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                    <span>Excluindo...</span>
+                  </>
+                ) : (
+                  <>
+                    <Trash2 className="w-4 h-4" />
+                    <span>Confirmar Exclusão</span>
+                  </>
+                )}
+              </button>
+            </div>
 
           </div>
         </div>

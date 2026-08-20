@@ -222,7 +222,7 @@ async function startServer() {
       let response;
       try {
         response = await ai.models.generateContent({
-          model: "gemini-3.5-flash",
+          model: "gemini-3.7-flash",
           contents: {
             parts: [
               {
@@ -254,10 +254,10 @@ async function startServer() {
           }
         });
       } catch (firstError: any) {
-        console.warn('Primary Gemini model (gemini-3.5-flash) failed, attempting fallback to gemini-3.1-flash-lite:', firstError);
+        console.warn('Primary Gemini model (gemini-3.7-flash) failed, attempting fallback to gemini-2.5-flash:', firstError);
         try {
           response = await ai.models.generateContent({
-            model: "gemini-3.1-flash-lite",
+            model: "gemini-2.5-flash",
             contents: {
               parts: [
                 {
@@ -289,8 +289,44 @@ async function startServer() {
             }
           });
         } catch (secondError: any) {
-          console.error('Secondary Gemini model (gemini-3.1-flash-lite) also failed:', secondError);
-          throw new Error('Falha no processamento por IA devido à alta demanda global nos servidores da Google. Por favor, tente novamente em alguns instantes ou realize o cadastro manual. Detalhes: ' + secondError.message);
+          console.warn('Secondary Gemini model (gemini-2.5-flash) failed, attempting fallback to gemini-3.1-flash-lite:', secondError);
+          try {
+            response = await ai.models.generateContent({
+              model: "gemini-3.1-flash-lite",
+              contents: {
+                parts: [
+                  {
+                    inlineData: {
+                      data: pdfBase64,
+                      mimeType: "application/pdf"
+                    }
+                  },
+                  {
+                    text: "Você é um assistente de IA perito em ler Medidas Protetivas de Urgência (MPU) decretadas no Brasil (TJMS, etc.). Analise minuciosamente o documento PDF anexo e extraia os dados necessários com extrema precisão:\n\n1. Nome da vítima (ofendida/requerente/assistida).\n2. Nome do réu (agressor/requerido/autor do fato).\n3. Número do processo/ordem extraído (ex: xxxxxxx-xx.xxxx.8.12.xxxx).\n4. Nome do Magistrado/Juiz prolator da sentença.\n5. Data da decisão/emissão (formato AAAA-MM-DD).\n6. Data de expiração (se descrita, senão preveja uma data padrão de 180 dias a contar da expedição, formato AAAA-MM-DD).\n7. Resumo simples e inteligível em português sobre as restrições impostas ao agressor (ex: distanciamento de no mínimo 300m, proibição de contato, afastamento do lar)."
+                  }
+                ]
+              },
+              config: {
+                responseMimeType: "application/json",
+                responseSchema: {
+                  type: Type.OBJECT,
+                  properties: {
+                    victimName: { type: Type.STRING, description: "Nome completo da vítima sem abreviações" },
+                    defendantName: { type: Type.STRING, description: "Nome completo do réu/agressor sem abreviações" },
+                    orderNumber: { type: Type.STRING, description: "Número completo do processo judicial no padrão CNJ" },
+                    issueDate: { type: Type.STRING, description: "Data de expedição ou assinatura da decisão (AAAA-MM-DD)" },
+                    expiryDate: { type: Type.STRING, description: "Data de expiração das medidas (AAAA-MM-DD)" },
+                    judgeName: { type: Type.STRING, description: "Nome do Juiz ou Juíza de Direito prolator da decisão" },
+                    restrictions: { type: Type.STRING, description: "Texto sintetizado com as restrições impostas" }
+                  },
+                  required: ["victimName", "defendantName", "orderNumber", "issueDate", "judgeName", "restrictions"]
+                }
+              }
+            });
+          } catch (thirdError: any) {
+            console.error('All Gemini models failed:', thirdError);
+            throw new Error('Falha no processamento por IA devido à alta demanda global nos servidores da Google. Por favor, tente novamente em alguns instantes ou realize o cadastro manual. Detalhes: ' + thirdError.message);
+          }
         }
       }
       
@@ -337,6 +373,12 @@ async function startServer() {
         policeOfficerInCharge: req.body.policeOfficerInCharge || 'A definir',
         assignedPatrol: req.body.assignedPatrol || 'A definir',
         createdAt: req.body.createdAt || new Date().toISOString(),
+        acceptedPromuse: req.body.acceptedPromuse !== undefined ? req.body.acceptedPromuse : 'SIM',
+        victimPhotoUrl: req.body.victimPhotoUrl,
+        aggressorPhotoUrl: req.body.aggressorPhotoUrl || req.body.defendantPhotoUrl,
+        defendantPhotoUrl: req.body.defendantPhotoUrl || req.body.aggressorPhotoUrl,
+        mpuPdf: req.body.mpuPdf,
+        attachments: req.body.attachments || [],
         coordinates: req.body.coordinates,
         protectiveOrder: req.body.protectiveOrder ? {
           id: req.body.protectiveOrder.id || 'ord_' + Date.now(),
@@ -348,7 +390,9 @@ async function startServer() {
           restrictions: req.body.protectiveOrder.restrictions || 'Medidas protetivas padrão impostas pelo juízo.',
           status: req.body.protectiveOrder.status || 'Ativa',
           revocationNoticeNumber: req.body.protectiveOrder.revocationNoticeNumber,
-          revocationDate: req.body.protectiveOrder.revocationDate
+          revocationDate: req.body.protectiveOrder.revocationDate,
+          mpuPdf: req.body.protectiveOrder.mpuPdf || req.body.mpuPdf,
+          attachments: req.body.protectiveOrder.attachments || req.body.attachments || []
         } : undefined
       };
 
@@ -379,6 +423,12 @@ async function startServer() {
         riskLevel: req.body.riskLevel !== undefined ? req.body.riskLevel : existing.riskLevel,
         policeOfficerInCharge: req.body.policeOfficerInCharge !== undefined ? req.body.policeOfficerInCharge : existing.policeOfficerInCharge,
         assignedPatrol: req.body.assignedPatrol !== undefined ? req.body.assignedPatrol : existing.assignedPatrol,
+        acceptedPromuse: req.body.acceptedPromuse !== undefined ? req.body.acceptedPromuse : existing.acceptedPromuse,
+        victimPhotoUrl: req.body.victimPhotoUrl !== undefined ? req.body.victimPhotoUrl : existing.victimPhotoUrl,
+        aggressorPhotoUrl: req.body.aggressorPhotoUrl !== undefined ? req.body.aggressorPhotoUrl : existing.aggressorPhotoUrl,
+        defendantPhotoUrl: req.body.defendantPhotoUrl !== undefined ? req.body.defendantPhotoUrl : existing.defendantPhotoUrl,
+        mpuPdf: req.body.mpuPdf !== undefined ? req.body.mpuPdf : existing.mpuPdf,
+        attachments: req.body.attachments !== undefined ? req.body.attachments : existing.attachments,
         protectiveOrder: req.body.protectiveOrder !== undefined ? req.body.protectiveOrder : existing.protectiveOrder,
         coordinates: req.body.coordinates !== undefined ? req.body.coordinates : existing.coordinates
       };

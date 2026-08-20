@@ -33,9 +33,10 @@
     },
     "Victim": {
       "title": "Victim",
-      "description": "A victim under monitoring",
+      "description": "A victim under monitoring in PROMUSE system",
       "type": "object",
       "properties": {
+        "id": { "type": "string" },
         "name": { "type": "string" },
         "cpf": { "type": "string" },
         "phone": { "type": "string" },
@@ -44,16 +45,67 @@
         "policeOfficerInCharge": { "type": "string" },
         "assignedPatrol": { "type": "string" },
         "createdAt": { "type": "string", "format": "date-time" },
+        "acceptedPromuse": { "type": "string", "enum": ["SIM", "NÃO"] },
+        "victimPhotoUrl": { "type": "string" },
+        "aggressorPhotoUrl": { "type": "string" },
+        "defendantPhotoUrl": { "type": "string" },
+        "mpuPdf": {
+          "type": "object",
+          "properties": {
+            "id": { "type": "string" },
+            "name": { "type": "string" },
+            "size": { "type": "number" },
+            "type": { "type": "string" },
+            "dataUrl": { "type": "string" },
+            "uploadedAt": { "type": "string" },
+            "category": { "type": "string" }
+          }
+        },
+        "attachments": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        },
+        "coordinates": {
+          "type": "object",
+          "properties": {
+            "latitude": { "type": "number" },
+            "longitude": { "type": "number" }
+          }
+        },
         "protectiveOrder": {
           "type": "object",
           "properties": {
             "id": { "type": "string" },
             "orderNumber": { "type": "string" },
-            "issueDate": { "type": "string", "format": "date" },
-            "expiryDate": { "type": "string", "format": "date" },
+            "defendantName": { "type": "string" },
+            "distanceLimit": { "type": "string" },
+            "issueDate": { "type": "string" },
+            "expiryDate": { "type": "string" },
             "judgeName": { "type": "string" },
             "restrictions": { "type": "string" },
-            "status": { "type": "string", "enum": ["Ativa", "Expirada", "Revogada"] }
+            "status": { "type": "string", "enum": ["Ativa", "Expirada", "Revogada"] },
+            "revocationNoticeNumber": { "type": "string" },
+            "revocationDate": { "type": "string" },
+            "mpuPdf": {
+              "type": "object",
+              "properties": {
+                "id": { "type": "string" },
+                "name": { "type": "string" },
+                "size": { "type": "number" },
+                "type": { "type": "string" },
+                "dataUrl": { "type": "string" },
+                "uploadedAt": { "type": "string" },
+                "category": { "type": "string" }
+              }
+            },
+            "attachments": {
+              "type": "array",
+              "items": {
+                "type": "object"
+              }
+            }
           }
         }
       },
